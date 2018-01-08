@@ -15,7 +15,9 @@ namespace System
     /// ReadOnlySpan represents a contiguous region of arbitrary memory. Unlike arrays, it can point to either managed
     /// or native memory, or to memory allocated on the stack. It is type- and memory-safe.
     /// </summary>
-    public struct ReadOnlySpan<T>
+    [DebuggerTypeProxy(typeof(SpanDebugView<>))]
+    [DebuggerDisplay("{DebuggerDisplay,nq}")]
+    public readonly ref struct ReadOnlySpan<T>
     {
         /// <summary>
         /// Creates a new read-only span over the entirety of the target array.
@@ -29,41 +31,10 @@ namespace System
         {
             if (array == null)
                 ThrowHelper.ThrowArgumentNullException(ExceptionArgument.array);
-            if (default(T) == null && array.GetType() != typeof(T[]))
-                ThrowHelper.ThrowArrayTypeMismatchException_ArrayTypeMustBeExactMatch(typeof(T));
 
             _length = array.Length;
             _pinnable = Unsafe.As<Pinnable<T>>(array);
             _byteOffset = SpanHelpers.PerTypeValues<T>.ArrayAdjustment;
-        }
-
-        /// <summary>
-        /// Creates a new read-only span over the portion of the target array beginning
-        /// at 'start' index and covering the remainder of the array.
-        /// </summary>
-        /// <param name="array">The target array.</param>
-        /// <param name="start">The index at which to begin the read-only span.</param>
-        /// <exception cref="System.ArgumentNullException">Thrown when <paramref name="array"/> is a null
-        /// reference (Nothing in Visual Basic).</exception>
-        /// <exception cref="System.ArrayTypeMismatchException">Thrown when <paramref name="array"/> is covariant and array's type is not exactly T[].</exception>
-        /// <exception cref="System.ArgumentOutOfRangeException">
-        /// Thrown when the specified <paramref name="start"/> is not in the range (&lt;0 or &gt;=Length).
-        /// </exception>
-        [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public ReadOnlySpan(T[] array, int start)
-        {
-            if (array == null)
-                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.array);
-            if (default(T) == null && array.GetType() != typeof(T[]))
-                ThrowHelper.ThrowArrayTypeMismatchException_ArrayTypeMustBeExactMatch(typeof(T));
-
-            int arrayLength = array.Length;
-            if ((uint)start > (uint)arrayLength)
-                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.start);
-
-            _length = arrayLength - start;
-            _pinnable = Unsafe.As<Pinnable<T>>(array);
-            _byteOffset = SpanHelpers.PerTypeValues<T>.ArrayAdjustment.Add<T>(start);
         }
 
         /// <summary>
@@ -84,8 +55,6 @@ namespace System
         {
             if (array == null)
                 ThrowHelper.ThrowArgumentNullException(ExceptionArgument.array);
-            if (default(T) == null && array.GetType() != typeof(T[]))
-                ThrowHelper.ThrowArrayTypeMismatchException_ArrayTypeMustBeExactMatch(typeof(T));
             if ((uint)start > (uint)array.Length || (uint)length > (uint)(array.Length - start))
                 ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.start);
 
@@ -108,6 +77,7 @@ namespace System
         /// <exception cref="System.ArgumentOutOfRangeException">
         /// Thrown when the specified <paramref name="length"/> is negative.
         /// </exception>
+        [CLSCompliant(false)]
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         public unsafe ReadOnlySpan(void* pointer, int length)
         {
@@ -123,26 +93,17 @@ namespace System
 
         /// <summary>
         /// Create a new read-only span over a portion of a regular managed object. This can be useful
-        /// if part of a managed object represents a "fixed array." This is dangerous because
-        /// "length" is not checked, nor is the fact that "rawPointer" actually lies within the object.
+        /// if part of a managed object represents a "fixed array." This is dangerous because neither the
+        /// <paramref name="length"/> is checked, nor <paramref name="obj"/> being null, nor the fact that
+        /// "rawPointer" actually lies within <paramref name="obj"/>.
         /// </summary>
         /// <param name="obj">The managed object that contains the data to span over.</param>
         /// <param name="objectData">A reference to data within that object.</param>
         /// <param name="length">The number of <typeparamref name="T"/> elements the memory contains.</param>
-        /// <exception cref="System.ArgumentNullException">
-        /// Thrown when the specified object is null.
-        /// </exception>
-        /// <exception cref="System.ArgumentOutOfRangeException">
-        /// Thrown when the specified <paramref name="length"/> is negative.
-        /// </exception>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        [EditorBrowsable(EditorBrowsableState.Never)]
         public static ReadOnlySpan<T> DangerousCreate(object obj, ref T objectData, int length)
         {
-            if (obj == null)
-                ThrowHelper.ThrowArgumentNullException(ExceptionArgument.obj);
-            if (length < 0)
-                ThrowHelper.ThrowArgumentOutOfRangeException(ExceptionArgument.length);
-
             Pinnable<T> pinnable = Unsafe.As<Pinnable<T>>(obj);
             IntPtr byteOffset = Unsafe.ByteOffset<T>(ref pinnable.Data, ref objectData);
             return new ReadOnlySpan<T>(pinnable, byteOffset, length);
@@ -158,6 +119,9 @@ namespace System
             _pinnable = pinnable;
             _byteOffset = byteOffset;
         }
+
+        //Debugger Display = {T[length]}
+        private string DebuggerDisplay => string.Format("{{{0}[{1}]}}", typeof(T).Name, _length);
 
         /// <summary>
         /// The number of items in the read-only span.
@@ -177,7 +141,7 @@ namespace System
         /// <exception cref="System.IndexOutOfRangeException">
         /// Thrown when index less than 0 or index greater than or equal to Length
         /// </exception>
-        public T this[int index]
+        public ref readonly T this[int index]
         {
             [MethodImpl(MethodImplOptions.AggressiveInlining)]
             get
@@ -186,9 +150,9 @@ namespace System
                     ThrowHelper.ThrowIndexOutOfRangeException();
 
                 if (_pinnable == null)
-                    unsafe { return Unsafe.Add<T>(ref Unsafe.AsRef<T>(_byteOffset.ToPointer()), index); }
+                    unsafe { return ref Unsafe.Add<T>(ref Unsafe.AsRef<T>(_byteOffset.ToPointer()), index); }
                 else
-                    return Unsafe.Add<T>(ref Unsafe.AddByteOffset<T>(ref _pinnable.Data, _byteOffset), index);
+                    return ref Unsafe.Add<T>(ref Unsafe.AddByteOffset<T>(ref _pinnable.Data, _byteOffset), index);
             }
         }
 
@@ -208,7 +172,6 @@ namespace System
                 ThrowHelper.ThrowArgumentException_DestinationTooShort();
         }
 
-
         /// <summary>
         /// Copies the contents of this read-only span into destination span. If the source
         /// and destinations overlap, this method behaves as if the original values in
@@ -220,37 +183,19 @@ namespace System
         /// <param name="destination">The span to copy items into.</param>
         public bool TryCopyTo(Span<T> destination)
         {
-            if ((uint)_length > (uint)destination.Length)
+            int length = _length;
+            int destLength = destination.Length;
+
+            if ((uint)length == 0)
+                return true;
+
+            if ((uint)length > (uint)destLength)
                 return false;
 
-            // TODO: This is a tide-over implementation as we plan to add a overlap-safe cpblk-based api to Unsafe. (https://github.com/dotnet/corefx/issues/13427)
-            unsafe
-            {
-                ref T src = ref DangerousGetPinnableReference();
-                ref T dst = ref destination.DangerousGetPinnableReference();
-                IntPtr srcMinusDst = Unsafe.ByteOffset<T>(ref dst, ref src);
-                int length = _length;
-
-                bool srcGreaterThanDst = (sizeof(IntPtr) == sizeof(int)) ? srcMinusDst.ToInt32() >= 0 : srcMinusDst.ToInt64() >= 0;
-                if (srcGreaterThanDst)
-                {
-                    // Source address greater than or equal to destination address. Can do normal copy.
-                    for (int i = 0; i < length; i++)
-                    {
-                        Unsafe.Add<T>(ref dst, i) = Unsafe.Add<T>(ref src, i);
-                    }
-                }
-                else
-                {
-                    // Source address less than destination address. Must do backward copy.
-                    int i = length;
-                    while (i-- != 0)
-                    {
-                        Unsafe.Add<T>(ref dst, i) = Unsafe.Add<T>(ref src, i);
-                    }
-                }
-                return true;
-            }
+            ref T src = ref DangerousGetPinnableReference();
+            ref T dst = ref destination.DangerousGetPinnableReference();
+            SpanHelpers.CopyTo<T>(ref dst, destLength, ref src, length);
+            return true;
         }
 
         /// <summary>
@@ -297,12 +242,13 @@ namespace System
         /// <summary>
         /// Defines an implicit conversion of an array to a <see cref="ReadOnlySpan{T}"/>
         /// </summary>
-        public static implicit operator ReadOnlySpan<T>(T[] array) => new ReadOnlySpan<T>(array);
+        public static implicit operator ReadOnlySpan<T>(T[] array) => array != null ? new ReadOnlySpan<T>(array) : default;
 
         /// <summary>
         /// Defines an implicit conversion of a <see cref="ArraySegment{T}"/> to a <see cref="ReadOnlySpan{T}"/>
         /// </summary>
-        public static implicit operator ReadOnlySpan<T>(ArraySegment<T> arraySegment) => new ReadOnlySpan<T>(arraySegment.Array, arraySegment.Offset, arraySegment.Count);
+        public static implicit operator ReadOnlySpan<T>(ArraySegment<T> arraySegment)
+            => arraySegment.Array != null ? new ReadOnlySpan<T>(arraySegment.Array, arraySegment.Offset, arraySegment.Count) : default;
 
         /// <summary>
         /// Forms a slice out of the given read-only span, beginning at 'start'.
@@ -361,16 +307,73 @@ namespace System
         public static ReadOnlySpan<T> Empty => default(ReadOnlySpan<T>);
 
         /// <summary>
+        /// This method is obsolete, use System.Runtime.InteropServices.MemoryMarshal.GetReference instead.
         /// Returns a reference to the 0th element of the Span. If the Span is empty, returns a reference to the location where the 0th element
         /// would have been stored. Such a reference can be used for pinning but must never be dereferenced.
         /// </summary>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public ref T DangerousGetPinnableReference()
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        internal ref T DangerousGetPinnableReference()
         {
             if (_pinnable == null)
                 unsafe { return ref Unsafe.AsRef<T>(_byteOffset.ToPointer()); }
             else
                 return ref Unsafe.AddByteOffset<T>(ref _pinnable.Data, _byteOffset);
+        }
+
+        /// <summary>Gets an enumerator for this span.</summary>
+        public Enumerator GetEnumerator() => new Enumerator(this);
+
+        /// <summary>Enumerates the elements of a <see cref="ReadOnlySpan{T}"/>.</summary>
+        public ref struct Enumerator
+        {
+            /// <summary>The span being enumerated.</summary>
+            private readonly ReadOnlySpan<T> _span;
+            /// <summary>The next index to yield.</summary>
+            private int _index;
+
+            /// <summary>Initialize the enumerator.</summary>
+            /// <param name="span">The span to enumerate.</param>
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            internal Enumerator(ReadOnlySpan<T> span)
+            {
+                _span = span;
+                _index = -1;
+            }
+
+            /// <summary>Advances the enumerator to the next element of the span.</summary>
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            public bool MoveNext()
+            {
+                int index = _index + 1;
+                if (index < _span.Length)
+                {
+                    _index = index;
+                    return true;
+                }
+
+                return false;
+            }
+
+            /// <summary>Gets the element at the current position of the enumerator.</summary>
+            public ref readonly T Current
+            {
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                get
+                {
+                    // TODO https://github.com/dotnet/corefx/issues/24105:
+                    // Change this to simply be:
+                    //     get => ref _span[_index];
+                    // once ReadOnlySpan<T>'s indexer returns ref readonly.
+
+                    if ((uint)_index >= (uint)_span.Length)
+                    {
+                        ThrowHelper.ThrowIndexOutOfRangeException();
+                    }
+
+                    return ref Unsafe.Add(ref _span.DangerousGetPinnableReference(), _index);
+                }
+            }
         }
 
         // These expose the internal representation for Span-related apis use only.

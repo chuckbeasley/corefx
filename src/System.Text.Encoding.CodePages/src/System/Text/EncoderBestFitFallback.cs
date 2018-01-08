@@ -15,7 +15,6 @@ using System.Threading;
 
 namespace System.Text
 {
-    [Serializable]
     internal class InternalEncoderBestFitFallback : EncoderFallback
     {
         // Our variables
@@ -180,7 +179,6 @@ namespace System.Text
         }
 
         // Clear the buffer
-        [System.Security.SecuritySafeCritical] // overrides public transparent member
         public override unsafe void Reset()
         {
             _iCount = -1;

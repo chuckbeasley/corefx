@@ -44,6 +44,12 @@ namespace System.Net.Http.Functional.Tests
             {
                 // Get and parse the incoming request.
                 Func<Task> getAndReadRequest = async () => {
+                    if (clientSocket != null)
+                    {
+                        clientSocket.Shutdown(SocketShutdown.Send);
+                        clientSocket.Dispose();
+                    }
+
                     clientSocket = await listener.AcceptSocketAsync().ConfigureAwait(false);
                     clientStream = new NetworkStream(clientSocket, ownsSocket: false);
                     clientReader = new StreamReader(clientStream, Encoding.ASCII);
@@ -67,8 +73,6 @@ namespace System.Net.Http.Functional.Tests
                     await clientSocket.SendAsync(
                         new ArraySegment<byte>(Encoding.ASCII.GetBytes("HTTP/1.1 407 Proxy Auth Required\r\nProxy-Authenticate: Basic\r\n\r\n")),
                         SocketFlags.None).ConfigureAwait(false);
-                    clientSocket.Shutdown(SocketShutdown.Send);
-                    clientSocket.Dispose();
 
                     if (expectCreds)
                     {
@@ -126,9 +130,22 @@ namespace System.Net.Http.Functional.Tests
             }
             finally
             {
+                clientSocket.Shutdown(SocketShutdown.Send);
                 clientSocket.Dispose();
                 listener.Stop();
             }
+        }
+
+        private static Task<int> SendAsyncApm(Socket socket, ArraySegment<byte> buffer, SocketFlags socketFlags)
+        {
+            var tcs = new TaskCompletionSource<int>(socket);
+            socket.BeginSend(buffer.Array, buffer.Offset, buffer.Count, socketFlags, iar =>
+            {
+                var innerTcs = (TaskCompletionSource<int>)iar.AsyncState;
+                try { innerTcs.TrySetResult(((Socket)innerTcs.Task.AsyncState).EndSend(iar)); }
+                catch (Exception e) { innerTcs.TrySetException(e); }
+            }, tcs);
+            return tcs.Task;
         }
     }
 }

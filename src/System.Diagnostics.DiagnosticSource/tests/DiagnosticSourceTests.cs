@@ -600,6 +600,35 @@ namespace System.Diagnostics.Tests
             sub3.Dispose();
         }
 
+        [Fact]
+        public void SubscribeWithNullPredicate()
+        {
+            using (DiagnosticListener listener = new DiagnosticListener("Testing"))
+            {
+                Predicate<string> predicate = null;
+                using (listener.Subscribe(new ObserverToList<TelemData>(new List<KeyValuePair<string, object>>()), predicate))
+                {
+                    Assert.True(listener.IsEnabled("event"));
+                    Assert.True(listener.IsEnabled("event", null));
+                    Assert.True(listener.IsEnabled("event", "arg1"));
+                    Assert.True(listener.IsEnabled("event", "arg1", "arg2"));
+                }
+            }
+
+            using (DiagnosticListener listener = new DiagnosticListener("Testing"))
+            {
+                DiagnosticSource source = listener;
+                Func<string, object, object, bool> predicate = null;
+                using (listener.Subscribe(new ObserverToList<TelemData>(new List<KeyValuePair<string, object>>()), predicate))
+                {
+                    Assert.True(source.IsEnabled("event"));
+                    Assert.True(source.IsEnabled("event", null));
+                    Assert.True(source.IsEnabled("event", "arg1"));
+                    Assert.True(source.IsEnabled("event", "arg1", "arg2"));
+                }
+            }
+        }
+
         #region Helpers 
         /// <summary>
         /// Returns the list of active diagnostic listeners.  
@@ -622,7 +651,7 @@ namespace System.Diagnostics.Tests
         }
 
         /// <summary>
-        /// Used to make an observer out of a action delegate. 
+        /// Used to make an observer out of an action delegate. 
         /// </summary>
         public static IObserver<T> MakeObserver<T>(
             Action<T> onNext = null, Action onCompleted = null)

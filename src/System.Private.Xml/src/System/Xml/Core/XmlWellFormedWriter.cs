@@ -1579,17 +1579,6 @@ namespace System.Xml
             }
         }
 
-        //
-        // Internal methods
-        //
-        internal XmlWriter InnerWriter
-        {
-            get
-            {
-                return _writer;
-            }
-        }
-
         internal XmlRawWriter RawWriter
         {
             get
@@ -2133,7 +2122,6 @@ namespace System.Xml
             return s;
         }
 
-        [System.Security.SecuritySafeCritical]
         private unsafe void CheckNCName(string ncname)
         {
             Debug.Assert(ncname != null && ncname.Length > 0);

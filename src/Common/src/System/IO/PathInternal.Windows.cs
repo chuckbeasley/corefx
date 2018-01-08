@@ -56,7 +56,6 @@ namespace System.IO
         internal const int UncPrefixLength = 2;
         // \\?\UNC\, \\.\UNC\
         internal const int UncExtendedPrefixLength = 8;
-        internal static readonly int MaxComponentLength = 255;
 
         internal static char[] GetInvalidPathChars() => new char[]
         {
@@ -80,24 +79,6 @@ namespace System.IO
         internal static bool IsValidDriveChar(char value)
         {
             return ((value >= 'A' && value <= 'Z') || (value >= 'a' && value <= 'z'));
-        }
-
-        /// <summary>
-        /// Returns true if the path is too long
-        /// </summary>
-        internal static bool IsPathTooLong(string fullPath)
-        {
-            // We'll never know precisely what will fail as paths get changed internally in Windows and
-            // may grow to exceed MaxLongPath.
-            return fullPath.Length >= MaxLongPath;
-        }
-
-        /// <summary>
-        /// Returns true if the directory is too long
-        /// </summary>
-        internal static bool IsDirectoryTooLong(string fullPath)
-        {
-            return IsPathTooLong(fullPath);
         }
 
         /// <summary>
@@ -173,34 +154,6 @@ namespace System.IO
                 && (path[1] == '\\' || path[1] == '?')
                 && path[2] == '?'
                 && path[3] == '\\';
-        }
-
-        /// <summary>
-        /// Returns a value indicating if the given path contains invalid characters (", &lt;, &gt;, | 
-        /// NUL, or any ASCII char whose integer representation is in the range of 1 through 31).
-        /// Does not check for wild card characters ? and *.
-        /// </summary>
-        internal static bool HasIllegalCharacters(string path)
-        {
-            // This is equivalent to IndexOfAny(InvalidPathChars) >= 0,
-            // except faster since IndexOfAny grows slower as the input
-            // array grows larger.
-            // Since we know that some of the characters we're looking
-            // for are contiguous in the alphabet-- the path cannot contain
-            // characters 0-31-- we can optimize this for our specific use
-            // case and use simple comparison operations.
-
-            for (int i = 0; i < path.Length; i++)
-            {
-                char c = path[i];
-
-                if (c <= '\u001f' || c == '|')
-                {
-                    return true;
-                }
-            }
-
-            return false;
         }
 
         /// <summary>

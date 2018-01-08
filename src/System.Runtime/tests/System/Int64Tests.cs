@@ -2,14 +2,13 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information.
 
-using System;
 using System.Collections.Generic;
 using System.Globalization;
 using Xunit;
 
 namespace System.Tests
 {
-    public static class Int64Tests
+    public partial class Int64Tests
     {
         [Fact]
         public static void Ctor_Empty()
@@ -49,22 +48,22 @@ namespace System.Tests
         [InlineData((long)-234, (long)234, -1)]
         [InlineData((long)-234, (long)-432, 1)]
         [InlineData((long)234, null, 1)]
-        public static void CompareTo(long i, object value, long expected)
+        public void CompareTo_Other_ReturnsExpected(long i, object value, int expected)
         {
-            if (value is long)
+            if (value is long longValue)
             {
-                Assert.Equal(expected, Math.Sign(i.CompareTo((long)value)));
+                Assert.Equal(expected, Math.Sign(i.CompareTo(longValue)));
             }
-            IComparable comparable = i;
-            Assert.Equal(expected, Math.Sign(comparable.CompareTo(value)));
+
+            Assert.Equal(expected, Math.Sign(i.CompareTo(value)));
         }
 
-        [Fact]
-        public static void CompareTo_ObjectNotLong_ThrowsArgumentException()
+        [Theory]
+        [InlineData("a")]
+        [InlineData(234)]
+        public void CompareTo_ObjectNotLong_ThrowsArgumentException(object value)
         {
-            IComparable comparable = (long)234;
-            Assert.Throws<ArgumentException>(null, () => comparable.CompareTo("a")); // Obj is not a long
-            Assert.Throws<ArgumentException>(null, () => comparable.CompareTo(234)); // Obj is not a long
+            AssertExtensions.Throws<ArgumentException>(null, () => ((long)123).CompareTo(value));
         }
 
         [Theory]
@@ -88,24 +87,46 @@ namespace System.Tests
             Assert.Equal(expected, i1.Equals(obj));
         }
 
+        [Fact]
+        public void GetTypeCode_Invoke_ReturnsInt64()
+        {
+            Assert.Equal(TypeCode.Int64, ((long)1).GetTypeCode());
+        }
+
         public static IEnumerable<object[]> ToString_TestData()
         {
-            NumberFormatInfo emptyFormat = NumberFormatInfo.CurrentInfo;
-            yield return new object[] { long.MinValue, "G", emptyFormat, "-9223372036854775808" };
-            yield return new object[] { (long)-4567, "G", emptyFormat, "-4567" };
-            yield return new object[] { (long)0, "G", emptyFormat, "0" };
-            yield return new object[] { (long)4567, "G", emptyFormat, "4567" };
-            yield return new object[] { long.MaxValue, "G", emptyFormat, "9223372036854775807" };
+            foreach (NumberFormatInfo defaultFormat in new[] { null, NumberFormatInfo.CurrentInfo })
+            {
+                yield return new object[] { long.MinValue, "G", defaultFormat, "-9223372036854775808" };
+                yield return new object[] { (long)-4567, "G", defaultFormat, "-4567" };
+                yield return new object[] { (long)0, "G", defaultFormat, "0" };
+                yield return new object[] { (long)4567, "G", defaultFormat, "4567" };
+                yield return new object[] { long.MaxValue, "G", defaultFormat, "9223372036854775807" };
 
-            yield return new object[] { (long)0x2468, "x", emptyFormat, "2468" };
-            yield return new object[] { (long)2468, "N", emptyFormat, string.Format("{0:N}", 2468.00) };
+                yield return new object[] { (long)4567, "D", defaultFormat, "4567" };
+                yield return new object[] { long.MaxValue, "D99", defaultFormat, "000000000000000000000000000000000000000000000000000000000000000000000000000000009223372036854775807" };
 
-            NumberFormatInfo customFormat = new NumberFormatInfo();
-            customFormat.NegativeSign = "#";
-            customFormat.NumberDecimalSeparator = "~";
-            customFormat.NumberGroupSeparator = "*";
+                yield return new object[] { (long)0x2468, "x", defaultFormat, "2468" };
+                yield return new object[] { (long)2468, "N", defaultFormat, string.Format("{0:N}", 2468.00) };
+            }
+
+            var customFormat = new NumberFormatInfo()
+            {
+                NegativeSign = "#",
+                NumberDecimalSeparator = "~",
+                NumberGroupSeparator = "*",
+                PositiveSign = "&",
+                NumberDecimalDigits = 2,
+                PercentSymbol = "@",
+                PercentGroupSeparator = ",",
+                PercentDecimalSeparator = ".",
+                PercentDecimalDigits = 5
+            };
             yield return new object[] { (long)-2468, "N", customFormat, "#2*468~00" };
             yield return new object[] { (long)2468, "N", customFormat, "2*468~00" };
+            yield return new object[] { (long)123, "E", customFormat, "1~230000E&002" };
+            yield return new object[] { (long)123, "F", customFormat, "123~00" };
+            yield return new object[] { (long)123, "P", customFormat, "12,300.00000 @" };
         }
 
         [Theory]
@@ -278,16 +299,16 @@ namespace System.Tests
         }
 
         [Theory]
-        [InlineData(NumberStyles.HexNumber | NumberStyles.AllowParentheses)]
-        [InlineData(unchecked((NumberStyles)0xFFFFFC00))]
-        public static void TryParse_InvalidNumberStyle_ThrowsArgumentException(NumberStyles style)
+        [InlineData(NumberStyles.HexNumber | NumberStyles.AllowParentheses, null)]
+        [InlineData(unchecked((NumberStyles)0xFFFFFC00), "style")]
+        public static void TryParse_InvalidNumberStyle_ThrowsArgumentException(NumberStyles style, string paramName)
         {
             long result = 0;
-            Assert.Throws<ArgumentException>(() => long.TryParse("1", style, null, out result));
+            AssertExtensions.Throws<ArgumentException>(paramName, () => long.TryParse("1", style, null, out result));
             Assert.Equal(default(long), result);
 
-            Assert.Throws<ArgumentException>(() => long.Parse("1", style));
-            Assert.Throws<ArgumentException>(() => long.Parse("1", style, null));
+            AssertExtensions.Throws<ArgumentException>(paramName, () => long.Parse("1", style));
+            AssertExtensions.Throws<ArgumentException>(paramName, () => long.Parse("1", style, null));
         }
     }
 }

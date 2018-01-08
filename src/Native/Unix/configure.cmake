@@ -1,5 +1,7 @@
 include(CheckCXXSourceCompiles)
 include(CheckCXXSourceRuns)
+include(CheckCSourceCompiles)
+include(CheckCSourceRuns)
 include(CheckFunctionExists)
 include(CheckIncludeFiles)
 include(CheckPrototypeDefinition)
@@ -29,28 +31,39 @@ set(CMAKE_REQUIRED_FLAGS -Werror)
 
 # in_pktinfo: Find whether this struct exists
 check_include_files(
-    linux/in.h
+    "sys/socket.h;linux/in.h"
     HAVE_LINUX_IN_H)
 
 if (HAVE_LINUX_IN_H)
-    set (SOCKET_INCLUDES ${SOCKET_INCLUDES} linux/in.h)
+    set (SOCKET_INCLUDES linux/in.h)
 else ()
-    set (SOCKET_INCLUDES ${SOCKET_INCLUDES} netinet/in.h)
+    set (SOCKET_INCLUDES netinet/in.h)
 endif ()
 
-set(CMAKE_EXTRA_INCLUDE_FILES ${SOCKET_INCLUDES})
+check_c_source_compiles(
+    "
+    #include <sys/socket.h>
+    #include <${SOCKET_INCLUDES}>
+    int main()
+    {
+        struct in_pktinfo pktinfo;
+        return 0;
+    }
+    "
+    HAVE_IN_PKTINFO)
 
-check_type_size(
-    "struct in_pktinfo"
-    HAVE_IN_PKTINFO
-    BUILTIN_TYPES_ONLY)
+check_c_source_compiles(
+    "
+    #include <sys/socket.h>
+    #include <${SOCKET_INCLUDES}>
+    int main()
+    {
+        struct ip_mreqn mreqn;
+        return 0;
+    }
+    "
+    HAVE_IP_MREQN)
 
-check_type_size(
-    "struct ip_mreqn"
-    HAVE_IP_MREQN
-    BUILTIN_TYPES_ONLY)
-
-set(CMAKE_EXTRA_INCLUDE_FILES) # reset CMAKE_EXTRA_INCLUDE_FILES
 # /in_pktinfo
 
 check_c_source_compiles(
@@ -84,8 +97,9 @@ check_function_exists(
     stat64
     HAVE_STAT64)
 
-check_function_exists(
+check_symbol_exists(
     pipe2
+    unistd.h
     HAVE_PIPE2)
 
 check_function_exists(
@@ -183,30 +197,19 @@ check_type_size(
 set(CMAKE_EXTRA_INCLUDE_FILES) # reset CMAKE_EXTRA_INCLUDE_FILES
 # /statfs
 
-check_struct_has_member(
-    "struct in6_addr"
-    __in6_u
-    "netdb.h"
-    HAVE_IN6_U)
-
-check_struct_has_member(
-    "struct in6_addr"
-    __u6_addr
-    "netdb.h"
-    HAVE_U6_ADDR)
-
-check_cxx_source_compiles(
+check_c_source_compiles(
     "
     #include <string.h>
     int main()
     {
         char buffer[1];
         char* c = strerror_r(0, buffer, 0);
+        return 0;
     }
     "
     HAVE_GNU_STRERROR_R)
 
-check_cxx_source_compiles(
+check_c_source_compiles(
     "
     #include <dirent.h>
     int main(void)
@@ -220,7 +223,7 @@ check_cxx_source_compiles(
     "
     HAVE_READDIR_R)
 
-check_cxx_source_compiles(
+check_c_source_compiles(
     "
     #include <sys/types.h>
     #include <sys/event.h>
@@ -246,20 +249,20 @@ check_struct_has_member(
     "sys/select.h"
     HAVE_PRIVATE_FDS_BITS)
 
-check_cxx_source_compiles(
+check_c_source_compiles(
     "
     #include <sys/sendfile.h>
-    int main() { int i = sendfile(0, 0, 0, 0); }
+    int main() { int i = sendfile(0, 0, 0, 0); return 0; }
     "
     HAVE_SENDFILE_4)
 
-check_cxx_source_compiles(
+check_c_source_compiles(
     "
     #include <stdlib.h>
     #include <sys/types.h>
     #include <sys/socket.h>
     #include <sys/uio.h>
-    int main() { int i = sendfile(0, 0, 0, NULL, NULL, 0); }
+    int main() { int i = sendfile(0, 0, 0, NULL, NULL, 0); return 0; }
     "
     HAVE_SENDFILE_6)
 
@@ -272,10 +275,14 @@ check_function_exists(
     HAVE_EPOLL)
 
 check_function_exists(
+    accept4
+    HAVE_ACCEPT4)
+
+check_function_exists(
     kqueue
     HAVE_KQUEUE)
 
-check_cxx_source_compiles(
+check_c_source_compiles(
      "
      #include <sys/types.h>
      #include <netdb.h>
@@ -296,7 +303,7 @@ check_cxx_source_compiles(
      "
      HAVE_GETHOSTBYADDR_R)
 
-check_cxx_source_compiles(
+check_c_source_compiles(
      "
      #include <sys/types.h>
      #include <netdb.h>
@@ -314,6 +321,28 @@ check_cxx_source_compiles(
      }
      "
      HAVE_GETHOSTBYNAME_R)
+
+set(CMAKE_REQUIRED_FLAGS "-Werror -Wsign-conversion")
+check_c_source_compiles(
+     "
+     #include <sys/types.h>
+     #include <netdb.h>
+
+     int main()
+     {
+        const struct sockaddr *addr;
+        socklen_t addrlen;
+        char *host;
+        socklen_t hostlen;
+        char *serv;
+        socklen_t servlen;
+        int flags;
+        int result = getnameinfo(addr, addrlen, host, hostlen, serv, servlen, flags);
+        return 0;
+     }
+     "
+     HAVE_GETNAMEINFO_SIGNED_FLAGS)
+set(CMAKE_REQUIRED_FLAGS -Werror)
 
 set(HAVE_SUPPORT_FOR_DUAL_MODE_IPV4_PACKET_INFO 0)
 set(HAVE_THREAD_SAFE_GETHOSTBYNAME_AND_GETHOSTBYADDR 0)
@@ -347,6 +376,21 @@ check_cxx_source_runs(
     "
     HAVE_CLOCK_MONOTONIC)
 
+check_cxx_source_runs(
+    "
+    #include <stdlib.h>
+    #include <time.h>
+    #include <sys/time.h>
+    int main()
+    {
+        int ret;
+        struct timespec ts;
+        ret = clock_gettime(CLOCK_REALTIME, &ts);
+        exit(ret);
+    }
+    "
+    HAVE_CLOCK_REALTIME)
+
 check_function_exists(
     mach_absolute_time
     HAVE_MACH_ABSOLUTE_TIME)
@@ -366,14 +410,14 @@ check_function_exists(
 set (PREVIOUS_CMAKE_REQUIRED_FLAGS ${CMAKE_REQUIRED_FLAGS})
 set (CMAKE_REQUIRED_FLAGS "-Werror -Wsign-conversion")
 
-check_cxx_source_compiles(
+check_c_source_compiles(
     "
     #include <sys/socket.h>
 
     int main()
     {
         int fd;
-        sockaddr* addr;
+        struct sockaddr* addr;
         socklen_t addrLen;
 
         int err = bind(fd, addr, addrLen);
@@ -383,14 +427,14 @@ check_cxx_source_compiles(
     BIND_ADDRLEN_UNSIGNED
 )
 
-check_cxx_source_compiles(
+check_c_source_compiles(
     "
     #include <netinet/in.h>
     #include <netinet/tcp.h>
 
     int main()
     {
-        ipv6_mreq opt;
+        struct ipv6_mreq opt;
         unsigned int index = 0;
         opt.ipv6mr_interface = index;
         return 0;
@@ -399,7 +443,7 @@ check_cxx_source_compiles(
     IPV6MR_INTERFACE_UNSIGNED
 )
 
-check_cxx_source_compiles(
+check_c_source_compiles(
     "
     #include <sys/inotify.h>
 
@@ -414,7 +458,7 @@ check_cxx_source_compiles(
 
 set (CMAKE_REQUIRED_FLAGS ${PREVIOUS_CMAKE_REQUIRED_FLAGS})
 
-check_cxx_source_runs(
+check_c_source_runs(
     "
     #include <sys/mman.h>
     #include <fcntl.h>
@@ -453,7 +497,7 @@ check_prototype_definition(
     "sys/types.h;sys/event.h"
     KEVENT_REQUIRES_INT_PARAMS)
 
-check_cxx_source_compiles(
+check_c_source_compiles(
     "
     #include <stdlib.h>
     #include <unistd.h>
@@ -461,13 +505,12 @@ check_cxx_source_compiles(
 
     int main()
     {
-        char* path = strdup(\"abc\");
-        return mkstemps(path, 3);
+        return mkstemps(\"abc\", 3);
     }
     "
     HAVE_MKSTEMPS)
 
-check_cxx_source_compiles(
+check_c_source_compiles(
     "
     #include <stdlib.h>
     #include <unistd.h>
@@ -475,8 +518,7 @@ check_cxx_source_compiles(
 
     int main()
     {
-        char* path = strdup(\"abc\");
-        return mkstemp(path);
+        return mkstemp(\"abc\");
     }
     "
     HAVE_MKSTEMP)
@@ -485,7 +527,7 @@ if (NOT HAVE_MKSTEMPS AND NOT HAVE_MKSTEMP)
     message(FATAL_ERROR "Cannot find mkstemp nor mkstemp on this platform.")
 endif()
 
-check_cxx_source_compiles(
+check_c_source_compiles(
     "
     #include <sys/types.h>
     #include <sys/socketvar.h>
@@ -507,7 +549,7 @@ endif()
 
 # If sys/cdefs is not included on Android, this check will fail because
 # __BEGIN_DECLS is not defined
-check_cxx_source_compiles(
+check_c_source_compiles(
     "
 #ifdef HAVE_SYS_CDEFS_H
     #include <sys/cdefs.h>
@@ -536,7 +578,7 @@ check_cxx_source_compiles(
 )
 
 check_include_files(
-    sys/sysctl.h
+    "sys/types.h;sys/sysctl.h"
     HAVE_SYS_SYSCTL_H)
 
 check_include_files(
@@ -559,10 +601,10 @@ check_function_exists(
 # check if compiling with 'size_t' would cause a warning
 set (PREVIOUS_CMAKE_REQUIRED_FLAGS ${CMAKE_REQUIRED_FLAGS})
 set (CMAKE_REQUIRED_FLAGS "-Werror -Weverything")
-check_cxx_source_compiles(
+check_c_source_compiles(
     "
     #include <unistd.h>
-    int main() { size_t namelen = 20; char name[20]; getdomainname(name, namelen); }
+    int main() { size_t namelen = 20; char name[20]; getdomainname(name, namelen); return 0; }
     "
     HAVE_GETDOMAINNAME_SIZET
 )
@@ -590,21 +632,21 @@ endif()
 check_cxx_source_compiles(
     "
     #include <curl/multi.h>
-    int main() { int i = CURLM_ADDED_ALREADY; }
+    int main() { int i = CURLM_ADDED_ALREADY; return 0; }
     "
     HAVE_CURLM_ADDED_ALREADY)
 
 check_cxx_source_compiles(
     "
     #include <curl/multi.h>
-    int main() { int i = CURL_HTTP_VERSION_2_0; }
+    int main() { int i = CURL_HTTP_VERSION_2_0; return 0; }
     "
     HAVE_CURL_HTTP_VERSION_2_0)
 
 check_cxx_source_compiles(
     "
     #include <curl/multi.h>
-    int main() { int i = CURLPIPE_MULTIPLEX; }
+    int main() { int i = CURLPIPE_MULTIPLEX; return 0; }
     "
     HAVE_CURLPIPE_MULTIPLEX)
 
@@ -616,6 +658,7 @@ check_cxx_source_compiles(
         int i = CURL_SSLVERSION_TLSv1_0;
         i = CURL_SSLVERSION_TLSv1_1;
         i = CURL_SSLVERSION_TLSv1_2;
+        return 0;
     }
     "
     HAVE_CURL_SSLVERSION_TLSv1_012)
@@ -662,12 +705,23 @@ if (HAVE_CRT_EXTERNS_H)
     check_cxx_source_compiles(
     "
     #include <crt_externs.h>
-    int main() { char** e = *(_NSGetEnviron()); }
+    int main() { char** e = *(_NSGetEnviron()); return 0; }
     "
     HAVE_NSGETENVIRON)
 endif()
 
 set (CMAKE_REQUIRED_LIBRARIES)
+
+check_c_source_compiles(
+    "
+    #include <sys/inotify.h>
+    int main()
+    {
+        uint32_t mask = IN_EXCL_UNLINK;
+        return 0;
+    }
+    "
+    HAVE_IN_EXCL_UNLINK)
 
 configure_file(
     ${CMAKE_CURRENT_SOURCE_DIR}/Common/pal_config.h.in

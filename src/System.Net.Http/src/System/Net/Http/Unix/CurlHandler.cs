@@ -65,7 +65,7 @@ namespace System.Net.Http
     // time still allowing the native code to continue using its GCHandle and lookup the associated state as long as it's alive.
     // Yet then when an async read is made on the response message, we want to postpone such finalization and ensure that the async
     // read can be appropriately completed with control and reference ownership given back to the reader. As such, we do two things:
-    // we make the response stream finalizable, and we make the GCHandle be to a wrapper object for the EasyRequest rather than to 
+    // we make the response stream finalizable, and we make the GCHandle be to a wrapper object for the EasyRequest rather than to
     // the EasyRequest itself.  That wrapper object maintains a weak reference to the EasyRequest as well as sometimes maintaining
     // a strong reference.  When the request starts out, the GCHandle is created to the wrapper, which has a strong reference to
     // the EasyRequest (which also back references to the wrapper so that the wrapper can be accessed via it).  The GCHandle is
@@ -97,7 +97,7 @@ namespace System.Net.Http
         private const string UriSchemeHttps = "https";
         private const string EncodingNameGzip = "gzip";
         private const string EncodingNameDeflate = "deflate";
-        
+
         private const int MaxRequestBufferSize = 16384; // Default used by libcurl
         private const string NoTransferEncoding = HttpKnownHeaderNames.TransferEncoding + ":";
         private const string NoContentType = HttpKnownHeaderNames.ContentType + ":";
@@ -123,10 +123,10 @@ namespace System.Net.Http
         private static readonly bool s_supportsAutomaticDecompression;
         private static readonly bool s_supportsSSL;
         private static readonly bool s_supportsHttp2Multiplexing;
-        private static volatile StrongBox<CURLMcode> s_supportsMaxConnectionsPerServer;
         private static string s_curlVersionDescription;
         private static string s_curlSslVersionDescription;
 
+        private static readonly MultiAgent s_singletonSharedAgent;
         private readonly MultiAgent _agent;
         private volatile bool _anyOperationStarted;
         private volatile bool _disposed;
@@ -138,23 +138,24 @@ namespace System.Net.Http
         private DecompressionMethods _automaticDecompression = HttpHandlerDefaults.DefaultAutomaticDecompression;
         private bool _preAuthenticate = HttpHandlerDefaults.DefaultPreAuthenticate;
         private CredentialCache _credentialCache = null; // protected by LockObject
+        private bool _useDefaultCredentials = HttpHandlerDefaults.DefaultUseDefaultCredentials;
         private CookieContainer _cookieContainer = new CookieContainer();
-        private bool _useCookie = HttpHandlerDefaults.DefaultUseCookies;
+        private bool _useCookies = HttpHandlerDefaults.DefaultUseCookies;
         private TimeSpan _connectTimeout = Timeout.InfiniteTimeSpan;
         private bool _automaticRedirection = HttpHandlerDefaults.DefaultAutomaticRedirection;
         private int _maxAutomaticRedirections = HttpHandlerDefaults.DefaultMaxAutomaticRedirections;
         private int _maxConnectionsPerServer = HttpHandlerDefaults.DefaultMaxConnectionsPerServer;
-        private int _maxResponseHeadersLength = HttpHandlerDefaults.DefaultMaxResponseHeaderLength;
+        private int _maxResponseHeadersLength = HttpHandlerDefaults.DefaultMaxResponseHeadersLength;
         private ClientCertificateOption _clientCertificateOption = HttpHandlerDefaults.DefaultClientCertificateOption;
         private X509Certificate2Collection _clientCertificates;
         private Func<HttpRequestMessage, X509Certificate2, X509Chain, SslPolicyErrors, bool> _serverCertificateValidationCallback;
-        private bool _checkCertificateRevocationList;
+        private bool _checkCertificateRevocationList = HttpHandlerDefaults.DefaultCheckCertificateRevocationList;
         private SslProtocols _sslProtocols = SslProtocols.None; // use default
         private IDictionary<String, Object> _properties; // Only create dictionary when required.
 
         private object LockObject { get { return _agent; } }
 
-        #endregion        
+        #endregion
 
         static CurlHandler()
         {
@@ -169,11 +170,21 @@ namespace System.Net.Http
             {
                 EventSourceTrace($"libcurl: {CurlVersionDescription} {CurlSslVersionDescription} {features}");
             }
+
+            // By default every CurlHandler gets its own MultiAgent.  But for some backends,
+            // we need to restrict the number of threads involved in processing libcurl work,
+            // so we create a single MultiAgent that's used by all handlers.
+            if (UseSingletonMultiAgent)
+            {
+                s_singletonSharedAgent = new MultiAgent(null);
+            }
         }
 
         public CurlHandler()
         {
-            _agent = new MultiAgent(this);
+            // If the shared MultiAgent was initialized, use it.
+            // Otherwise, create a new MultiAgent for this handler.
+            _agent = s_singletonSharedAgent ?? new MultiAgent(this);
         }
 
         #region Properties
@@ -181,7 +192,23 @@ namespace System.Net.Http
         private static string CurlVersionDescription => s_curlVersionDescription ?? (s_curlVersionDescription = Interop.Http.GetVersionDescription() ?? string.Empty);
         private static string CurlSslVersionDescription => s_curlSslVersionDescription ?? (s_curlSslVersionDescription = Interop.Http.GetSslVersionDescription() ?? string.Empty);
 
-        internal bool AutomaticRedirection
+        private static bool UseSingletonMultiAgent
+        {
+            get
+            {
+                // Some backends other than OpenSSL need locks initialized in order to use them in a
+                // multithreaded context, which would happen with multiple HttpClients and thus multiple
+                // MultiAgents. Since we don't currently have the ability to do so initialization, instead we
+                // restrict all HttpClients to use the same MultiAgent instance in this case.  We know LibreSSL
+                // is in this camp, so we currently special-case it.
+                string curlSslVersion = Interop.Http.GetSslVersionDescription();
+                return
+                    !string.IsNullOrEmpty(curlSslVersion) &&
+                    curlSslVersion.StartsWith(Interop.Http.LibreSslDescription, StringComparison.OrdinalIgnoreCase);
+            }
+        }
+
+        internal bool AllowAutoRedirect
         {
             get { return _automaticRedirection; }
             set
@@ -247,9 +274,20 @@ namespace System.Net.Http
             }
         }
 
-        internal X509Certificate2Collection ClientCertificates => _clientCertificates ?? (_clientCertificates = new X509Certificate2Collection());
+        internal X509Certificate2Collection ClientCertificates
+        {
+            get
+            {
+                if (_clientCertificateOption != ClientCertificateOption.Manual)
+                {
+                    throw new InvalidOperationException(SR.Format(SR.net_http_invalid_enable_first, nameof(ClientCertificateOptions), nameof(ClientCertificateOption.Manual)));
+                }
 
-        internal Func<HttpRequestMessage, X509Certificate2, X509Chain, SslPolicyErrors, bool> ServerCertificateValidationCallback
+                return _clientCertificates ?? (_clientCertificates = new X509Certificate2Collection());
+            }
+        }
+
+        internal Func<HttpRequestMessage, X509Certificate2, X509Chain, SslPolicyErrors, bool> ServerCertificateCustomValidationCallback
         {
             get { return _serverCertificateValidationCallback; }
             set
@@ -306,13 +344,13 @@ namespace System.Net.Http
             }
         }
 
-        internal bool UseCookie
+        internal bool UseCookies
         {
-            get { return _useCookie; }
+            get { return _useCookies; }
             set
-            {               
+            {
                 CheckDisposedOrStarted();
-                _useCookie = value;
+                _useCookies = value;
             }
         }
 
@@ -351,22 +389,6 @@ namespace System.Net.Http
                     throw new ArgumentOutOfRangeException(nameof(value), value, SR.Format(SR.net_http_value_must_be_greater_than, 0));
                 }
 
-                // Make sure the libcurl version we're using supports the option, by setting the value on a temporary multi handle.
-                // We do this once and cache the result.
-                StrongBox<CURLMcode> supported = s_supportsMaxConnectionsPerServer; // benign race condition to read and set this
-                if (supported == null)
-                {
-                    using (Interop.Http.SafeCurlMultiHandle multiHandle = Interop.Http.MultiCreate())
-                    {
-                        s_supportsMaxConnectionsPerServer = supported = new StrongBox<CURLMcode>(
-                            Interop.Http.MultiSetOptionLong(multiHandle, Interop.Http.CURLMoption.CURLMOPT_MAX_HOST_CONNECTIONS, value));
-                    }
-                }
-                if (supported.Value != CURLMcode.CURLM_OK)
-                {
-                    throw new PlatformNotSupportedException(CurlException.GetCurlErrorString((int)supported.Value, isMulti: true));
-                }
-
                 CheckDisposedOrStarted();
                 _maxConnectionsPerServer = value;
             }
@@ -389,8 +411,12 @@ namespace System.Net.Http
 
         internal bool UseDefaultCredentials
         {
-            get { return false; }
-            set { }
+            get { return _useDefaultCredentials; }
+            set
+            {
+                CheckDisposedOrStarted();
+                _useDefaultCredentials = value;
+            }
         }
 
         public IDictionary<string, object> Properties
@@ -410,7 +436,7 @@ namespace System.Net.Http
         protected override void Dispose(bool disposing)
         {
             _disposed = true;
-            if (disposing)
+            if (disposing && _agent != s_singletonSharedAgent)
             {
                 _agent.Dispose();
             }
@@ -442,7 +468,7 @@ namespace System.Net.Http
                 throw new InvalidOperationException(SR.net_http_chunked_not_allowed_with_empty_content);
             }
 
-            if (_useCookie && _cookieContainer == null)
+            if (_useCookies && _cookieContainer == null)
             {
                 throw new InvalidOperationException(SR.net_http_invalid_cookiecontainer);
             }
@@ -460,10 +486,10 @@ namespace System.Net.Http
 
             // Create the easy request.  This associates the easy request with this handler and configures
             // it based on the settings configured for the handler.
-            var easy = new EasyRequest(this, request, cancellationToken);
+            var easy = new EasyRequest(this, _agent, request, cancellationToken);
             try
             {
-                EventSourceTrace("{0}", request, easy: easy, agent: _agent);
+                EventSourceTrace("{0}", request, easy: easy);
                 _agent.Queue(new MultiAgent.IncomingRequest { Easy = easy, Type = MultiAgent.IncomingRequestType.New });
             }
             catch (Exception exc)
@@ -547,7 +573,7 @@ namespace System.Net.Http
 
         private void AddResponseCookies(EasyRequest state, string cookieHeader)
         {
-            if (!_useCookie)
+            if (!_useCookies)
             {
                 return;
             }
@@ -560,7 +586,7 @@ namespace System.Net.Http
             catch (CookieException e)
             {
                 EventSourceTrace(
-                    "Malformed cookie parsing failed: {0}, server: {1}, cookie: {2}", 
+                    "Malformed cookie parsing failed: {0}, server: {1}, cookie: {2}",
                     e.Message, state._requestMessage.RequestUri, cookieHeader,
                     easy: state);
             }
@@ -698,7 +724,7 @@ namespace System.Net.Http
         }
 
         private static void EventSourceTrace(
-            string message, 
+            string message,
             MultiAgent agent = null, EasyRequest easy = null, [CallerMemberName] string memberName = null)
         {
             if (NetEventSource.IsEnabled)
@@ -715,9 +741,10 @@ namespace System.Net.Http
                 agent = easy._associatedMultiAgent;
             }
 
-            if (NetEventSource.IsEnabled) NetEventSource.Log.HandlerMessage(
+            NetEventSource.Log.HandlerMessage(
+                agent?.GetHashCode() ?? 0,
                 (agent?.RunningWorkerId).GetValueOrDefault(),
-                easy != null ? easy.Task.Id : 0,
+                easy?.Task.Id ?? 0,
                 memberName,
                 message);
         }
@@ -757,7 +784,7 @@ namespace System.Net.Http
             }
             else if (!chunkedMode)
             {
-                // Make sure Transfer-Encoding: chunked header is set, 
+                // Make sure Transfer-Encoding: chunked header is set,
                 // as we have content to send but no known length for it.
                 request.Headers.TransferEncodingChunked = true;
             }

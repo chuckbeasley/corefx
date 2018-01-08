@@ -73,7 +73,7 @@ namespace System.Xml.Serialization
                     return FromXmlNmTokens((string)value);
                 }
             }
-            throw new Exception(SR.Format(SR.XmlUnsupportedDefaultType, type.FullName));
+            throw new XmlException(SR.Format(SR.XmlUnsupportedDefaultType, type.FullName));
         }
 
         internal static string FromDate(DateTime value)
@@ -160,14 +160,15 @@ namespace System.Xml.Serialization
                 return null;
             if (value.Length == 0)
                 return "";
+
             return XmlConvert.ToBinHexString(value);
         }
 
         internal static string FromEnum(long val, string[] vals, long[] ids, string typeName)
         {
 #if DEBUG
-                // use exception in the place of Debug.Assert to avoid throwing asserts from a server process such as aspnet_ewp.exe
-                if (ids.Length != vals.Length) throw new InvalidOperationException(SR.Format(SR.XmlInternalErrorDetails, "Invalid enum"));
+            // use exception in the place of Debug.Assert to avoid throwing asserts from a server process such as aspnet_ewp.exe
+            if (ids.Length != vals.Length) throw new InvalidOperationException(SR.Format(SR.XmlInternalErrorDetails, "Invalid enum"));
 #endif
 
             long originalValue = val;
@@ -235,7 +236,7 @@ namespace System.Xml.Serialization
             {
                 return ToXmlNmTokens(value);
             }
-            throw new Exception(SR.Format(SR.XmlUnsupportedDefaultValue, formatter));
+            throw new XmlException(SR.Format(SR.XmlUnsupportedDefaultValue, formatter));
             //            Debug.WriteLineIf(CompModSwitches.XmlSerialization.TraceVerbose, "XmlSerialization::Unhandled default value " + value + " formatter " + formatter);
             //            return DBNull.Value;
         }

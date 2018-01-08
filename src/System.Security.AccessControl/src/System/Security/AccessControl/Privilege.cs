@@ -36,7 +36,7 @@ namespace System.Security.AccessControl
     internal sealed class Privilege
     {
         [ThreadStatic]
-        private static TlsContents tlsSlotData;
+        private static TlsContents t_tlsSlotData;
         private static Dictionary<Luid, string> privileges = new Dictionary<Luid, string>();
         private static Dictionary<string, Luid> luids = new Dictionary<string, Luid>();
         private static ReaderWriterLockSlim privilegeLock = new ReaderWriterLockSlim(LockRecursionPolicy.SupportsRecursion);
@@ -366,7 +366,6 @@ namespace System.Security.AccessControl
 
             public SafeTokenHandle ThreadHandle
             {
-                [System.Security.SecurityCritical]  // auto-generated
                 get
                 { return this.threadHandle; }
             }
@@ -419,7 +418,6 @@ namespace System.Security.AccessControl
 
         #endregion
 
-        //      [SecurityPermission( SecurityAction.Demand, TogglePrivileges=true )]
         private void ToggleState(bool enable)
         {
             int error = 0;
@@ -463,12 +461,12 @@ namespace System.Security.AccessControl
                     // Retrieve TLS state
                     //
 
-                    this.tlsContents = tlsSlotData;
+                    this.tlsContents = t_tlsSlotData;
 
                     if (this.tlsContents == null)
                     {
                         this.tlsContents = new TlsContents();
-                        tlsSlotData = this.tlsContents;
+                        t_tlsSlotData = this.tlsContents;
                     }
                     else
                     {
@@ -554,7 +552,6 @@ namespace System.Security.AccessControl
             }
         }
 
-        //      [SecurityPermission( SecurityAction.Demand, TogglePrivileges=true )]
         public void Revert()
         {
             int error = 0;
@@ -685,7 +682,7 @@ namespace System.Security.AccessControl
                 if (0 == this.tlsContents.DecrementReferenceCount())
                 {
                     this.tlsContents = null;
-                    tlsSlotData = null;
+                    t_tlsSlotData = null;
                 }
             }
         }

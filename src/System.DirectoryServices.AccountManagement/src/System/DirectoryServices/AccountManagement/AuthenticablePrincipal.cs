@@ -10,9 +10,6 @@ using System.Security.Permissions;
 
 namespace System.DirectoryServices.AccountManagement
 {
-#pragma warning disable 618    // Have not migrated to v4 transparency yet
-    [System.Security.SecurityCritical(System.Security.SecurityCriticalScope.Everything)]
-#pragma warning restore 618
     [DirectoryRdnPrefix("CN")]
     public class AuthenticablePrincipal : Principal
     {
@@ -332,7 +329,7 @@ namespace System.DirectoryServices.AccountManagement
         internal protected AuthenticablePrincipal(PrincipalContext context)
         {
             if (context == null)
-                throw new ArgumentException(StringResources.NullArguments);
+                throw new ArgumentException(SR.NullArguments);
 
             this.ContextRaw = context;
             this.unpersisted = true;
@@ -366,7 +363,7 @@ namespace System.DirectoryServices.AccountManagement
         {
             if ((subtype != typeof(AuthenticablePrincipal)) &&
                  (!subtype.IsSubclassOf(typeof(AuthenticablePrincipal))))
-                throw new ArgumentException(StringResources.AuthenticablePrincipalMustBeSubtypeOfAuthPrinc);
+                throw new ArgumentException(SR.AuthenticablePrincipalMustBeSubtypeOfAuthPrinc);
 
             if (context == null)
                 throw new ArgumentNullException("context");

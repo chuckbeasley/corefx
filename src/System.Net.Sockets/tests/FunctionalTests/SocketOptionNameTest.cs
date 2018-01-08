@@ -6,6 +6,7 @@ using System.Collections.Generic;
 using System.Net.Test.Common;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 using Xunit;
@@ -55,7 +56,7 @@ namespace System.Net.Sockets.Tests
         // TODO: Issue #4887
         // The socket option 'ReuseUnicastPost' only works on Windows 10 systems. In addition, setting the option
         // is a no-op unless specialized network settings using PowerShell configuration are first applied to the
-        // machine. This is currently difficult to test in the CI environment. So, this ests will be disabled for now
+        // machine. This is currently difficult to test in the CI environment. So, this test will be disabled for now
         [OuterLoop] // TODO: Issue #11345
         [ActiveIssue(4887)]
         public void ReuseUnicastPort_CreateSocketSetOptionToOneAndGetOption_SocketsReuseUnicastPortSupport_OptionIsOne()
@@ -83,6 +84,7 @@ namespace System.Net.Sockets.Tests
         }
 
         [OuterLoop] // TODO: Issue #11345
+        [Fact]
         public async Task MulticastInterface_Set_AnyInterface_Succeeds()
         {
             // On all platforms, index 0 means "any interface"
@@ -92,10 +94,11 @@ namespace System.Net.Sockets.Tests
         [OuterLoop] // TODO: Issue #11345
         [Fact]
         [PlatformSpecific(TestPlatforms.Windows)] // see comment below
+        [ActiveIssue(21327, TargetFrameworkMonikers.Uap)] // UWP Apps are forbidden to send network traffic to the local Computer.
         public async Task MulticastInterface_Set_Loopback_Succeeds()
         {
-            // On Windows, we can apparently assume interface 1 is "loopback."  On other platforms, this is not a
-            // valid assumption.  We could maybe use NetworkInterface.LoopbackInterfaceIndex to get the index, but
+            // On Windows, we can apparently assume interface 1 is "loopback." On other platforms, this is not a
+            // valid assumption. We could maybe use NetworkInterface.LoopbackInterfaceIndex to get the index, but
             // this would introduce a dependency on System.Net.NetworkInformation, which depends on System.Net.Sockets,
             // which is what we're testing here....  So for now, we'll just assume "loopback == 1" and run this on
             // Windows only.
@@ -114,11 +117,7 @@ namespace System.Net.Sockets.Tests
                 receiveSocket.ReceiveTimeout = 1000;
                 receiveSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.AddMembership, new MulticastOption(multicastAddress, interfaceIndex));
 
-                // https://github.com/Microsoft/BashOnWindows/issues/990
-                if (!PlatformDetection.IsWindowsSubsystemForLinux)
-                {
-                    sendSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastInterface, IPAddress.HostToNetworkOrder(interfaceIndex));
-                }
+                sendSocket.SetSocketOption(SocketOptionLevel.IP, SocketOptionName.MulticastInterface, IPAddress.HostToNetworkOrder(interfaceIndex));
 
                 var receiveBuffer = new byte[1024];
                 var receiveTask = receiveSocket.ReceiveAsync(new ArraySegment<byte>(receiveBuffer), SocketFlags.None);
@@ -127,6 +126,10 @@ namespace System.Net.Sockets.Tests
                 {
                     sendSocket.SendTo(Encoding.UTF8.GetBytes(message), new IPEndPoint(multicastAddress, port));
                 }
+
+                var cts = new CancellationTokenSource();
+                Assert.True(await Task.WhenAny(receiveTask, Task.Delay(20_000, cts.Token)) == receiveTask, "Waiting for received data timed out");
+                cts.Cancel();
 
                 int bytesReceived = await receiveTask;
                 string receivedMessage = Encoding.UTF8.GetString(receiveBuffer, 0, bytesReceived);
@@ -148,7 +151,7 @@ namespace System.Net.Sockets.Tests
         }
 
         [OuterLoop] // TODO: Issue #11345
-        [ConditionalTheory(nameof(PlatformDetection) + "." + nameof(PlatformDetection.IsNotWindowsSubsystemForLinux))] // In WSL, the connect() call fails immediately.
+        [ConditionalTheory(typeof(PlatformDetection), nameof(PlatformDetection.IsNotWindowsSubsystemForLinux))] // In WSL, the connect() call fails immediately.
         [InlineData(false)]
         [InlineData(true)]
         public void FailedConnect_GetSocketOption_SocketOptionNameError(bool simpleGet)
@@ -272,6 +275,88 @@ namespace System.Net.Sockets.Tests
             ReuseAddress(exclusiveAddressUse, firstSocketReuseAddress, secondSocketReuseAddress, expectFailure);
         }
 
+        [Fact]
+        [PlatformSpecific(TestPlatforms.AnyUnix)] // Windows defaults are different
+        public void ExclusiveAddress_Default_Unix()
+        {
+            using (Socket a = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp))
+            {
+                Assert.Equal(1, (int)a.GetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ExclusiveAddressUse));
+                Assert.Equal(true, a.ExclusiveAddressUse);
+                Assert.Equal(0, (int)a.GetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress));
+            }
+        }
+
+        [Theory]
+        [InlineData(1)]
+        [InlineData(0)]
+        [PlatformSpecific(TestPlatforms.AnyUnix)] // Unix does not have separate options for ExclusiveAddressUse and ReuseAddress.
+        public void SettingExclusiveAddress_SetsReuseAddress(int value)
+        {
+            using (Socket a = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp))
+            {
+                a.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ExclusiveAddressUse, value);
+
+                Assert.Equal(value, (int)a.GetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ExclusiveAddressUse));
+                Assert.Equal(value == 1 ? 0 : 1, (int)a.GetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress));
+            }
+
+            // SettingReuseAddress_SetsExclusiveAddress
+            using (Socket a = new Socket(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp))
+            {
+                a.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, value);
+
+                Assert.Equal(value, (int)a.GetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress));
+                Assert.Equal(value == 1 ? 0 : 1, (int)a.GetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ExclusiveAddressUse));
+            }
+        }
+
+        [Fact]
+        public void BindDuringTcpWait_Succeeds()
+        {
+            int port = 0;
+            using (Socket a = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp))
+            {
+                a.Bind(new IPEndPoint(IPAddress.Loopback, 0));
+                port = (a.LocalEndPoint as IPEndPoint).Port;
+                a.Listen(10);
+
+                // Connect a client
+                using (Socket client = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp))
+                {
+                    client.Connect(new IPEndPoint(IPAddress.Loopback, port));
+                    // accept socket and close it with zero linger time.
+                    a.Accept().Close(0);
+                }
+            }
+
+            // Bind a socket to the same address we just used.
+            using (Socket b = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp))
+            {
+                b.Bind(new IPEndPoint(IPAddress.Loopback, port));
+            }
+        }
+
+        [Fact]
+        public void ExclusiveAddressUseTcp()
+        {
+            using (Socket a = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp))
+            {
+                // ExclusiveAddressUse defaults to true on Unix, on Windows it defaults to false.
+                a.ExclusiveAddressUse = true;
+
+                a.Bind(new IPEndPoint(IPAddress.Loopback, 0));
+                a.Listen(10);
+                int port = (a.LocalEndPoint as IPEndPoint).Port;
+
+                using (Socket b = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp))
+                {
+                    SocketException ex = Assert.ThrowsAny<SocketException>(() => b.Bind(new IPEndPoint(IPAddress.Loopback, port)));
+                    Assert.Equal(SocketError.AddressAlreadyInUse, ex.SocketErrorCode);
+                }
+            }
+        }
+
         [OuterLoop] // TODO: Issue #11345
         [Theory]
         [PlatformSpecific(TestPlatforms.Windows)]  // SetIPProtectionLevel not supported on Unix
@@ -317,7 +402,7 @@ namespace System.Net.Sockets.Tests
         {
             using (var socket = new Socket(family, SocketType.Stream, ProtocolType.Tcp))
             {
-                Assert.Throws<ArgumentException>("level", () => socket.SetIPProtectionLevel(IPProtectionLevel.Unspecified));
+                AssertExtensions.Throws<ArgumentException>("level", () => socket.SetIPProtectionLevel(IPProtectionLevel.Unspecified));
             }
         }
     }

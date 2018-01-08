@@ -53,17 +53,19 @@ goto :Arg_Loop
 :: is already configured to use that toolset. Otherwise, we will fallback to using the VS2015
 :: toolset if it is installed. Finally, we will fail the script if no supported VS instance
 :: can be found.
-if not defined VisualStudioVersion (
-    if defined VS150COMNTOOLS (
-        call "%VS150COMNTOOLS%\VsDevCmd.bat"
-        goto :VS2017
-    ) else if defined VS140COMNTOOLS (
-        call "%VS140COMNTOOLS%\VsDevCmd.bat"
-        goto :VS2015
-    )
-    goto :MissingVersion
-)
 
+if defined VisualStudioVersion goto :RunVCVars
+
+set _VSWHERE="%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe"
+if exist %_VSWHERE% (
+  for /f "usebackq tokens=*" %%i in (`%_VSWHERE% -latest -prerelease -property installationPath`) do set _VSCOMNTOOLS=%%i\Common7\Tools
+)
+if not exist "%_VSCOMNTOOLS%" set _VSCOMNTOOLS=%VS140COMNTOOLS%
+if not exist "%_VSCOMNTOOLS%" goto :MissingVersion
+
+call "%_VSCOMNTOOLS%\VsDevCmd.bat"
+
+:RunVCVars
 if "%VisualStudioVersion%"=="15.0" (
     goto :VS2017
 ) else if "%VisualStudioVersion%"=="14.0" (
@@ -72,7 +74,7 @@ if "%VisualStudioVersion%"=="15.0" (
 
 :MissingVersion
 :: Can't find VS 2015 or 2017
-echo Error: Visual Studio 2015 or 2017 required  
+echo Error: Visual Studio 2015 or 2017 required
 echo        Please see https://github.com/dotnet/corefx/tree/master/Documentation for build instructions.
 exit /b 1
 
@@ -82,7 +84,7 @@ set __VSVersion=vs2017
 set __PlatformToolset=v141
 if NOT "%__BuildArch%" == "arm64" (
     :: Set the environment for the native build
-    call "%VS150COMNTOOLS%\..\..\VC\Auxiliary\Build\vcvarsall.bat" %__VCBuildArch%
+    call "%VS150COMNTOOLS%..\..\VC\Auxiliary\Build\vcvarsall.bat" %__VCBuildArch%
 )
 goto :SetupDirs
 
@@ -92,7 +94,7 @@ set __VSVersion=vs2015
 set __PlatformToolset=v140
 if NOT "%__BuildArch%" == "arm64" (
     :: Set the environment for the native build
-    call "%VS140COMNTOOLS%\..\..\VC\vcvarsall.bat" %__VCBuildArch%
+    call "%VS140COMNTOOLS%..\..\VC\vcvarsall.bat" %__VCBuildArch%
 )
 goto :SetupDirs
 
@@ -109,8 +111,6 @@ if %__IntermediatesDir% == "" (
 )
 set "__CMakeBinDir=%__CMakeBinDir:\=/%"
 set "__IntermediatesDir=%__IntermediatesDir:\=/%"
-set "__RuntimePath=%__binDir%\runtime\%__TargetGroup%-Windows_NT-%CMAKE_BUILD_TYPE%-%__BuildArch%\"
-set "__TestSharedFrameworkPath=%__binDir%\testhost\%__TargetGroup%-Windows_NT-%CMAKE_BUILD_TYPE%-%__BuildArch%\shared\Microsoft.NETCore.App\9.9.9\"
 
 :: Check that the intermediate directory exists so we can place our cmake build tree there
 if exist "%__IntermediatesDir%" rd /s /q "%__IntermediatesDir%"
@@ -118,13 +118,11 @@ if not exist "%__IntermediatesDir%" md "%__IntermediatesDir%"
 
 if exist "%VSINSTALLDIR%DIA SDK" goto GenVSSolution
 echo Error: DIA SDK is missing at "%VSINSTALLDIR%DIA SDK". ^
-This is due to a bug in the Visual Studio installer. It does not install DIA SDK at "%VSINSTALLDIR%" but rather ^
-at VS install location of previous version. Workaround is to copy DIA SDK folder from VS install location ^
-of previous version to "%VSINSTALLDIR%" and then resume build.
+Make sure you selected the correct dependencies when installing Visual Studio.
 :: DIA SDK not included in Express editions
 echo Visual Studio Express does not include the DIA SDK. ^
 You need Visual Studio 2015 or 2017 (Community is free).
-echo See: https://github.com/dotnet/coreclr/blob/master/Documentation/project-docs/developer-guide.md#prerequisites
+echo See: https://github.com/dotnet/corefx/blob/master/Documentation/building/windows-instructions.md#required-software
 exit /b 1
 
 :GenVSSolution
@@ -157,10 +155,6 @@ call %__rootDir%/run.cmd build-managed -project="%__IntermediatesDir%\install.vc
 IF ERRORLEVEL 1 (
     goto :Failure
 )
-
-:: Copy to vertical runtime directory
-xcopy /yqs "%__binDir%\Windows_NT.%__BuildArch%.%CMAKE_BUILD_TYPE%\native\*" "%__RuntimePath%"
-xcopy /yqs "%__binDir%\Windows_NT.%__BuildArch%.%CMAKE_BUILD_TYPE%\native\*" "%__TestSharedFrameworkPath%"
 
 echo Done building Native components
 

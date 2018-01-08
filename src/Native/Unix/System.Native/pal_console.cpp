@@ -4,10 +4,12 @@
 
 #include "pal_config.h"
 #include "pal_console.h"
+#include "pal_io.h"
 #include "pal_utilities.h"
 
 #include <assert.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <pthread.h>
 #include <signal.h>
 #include <stdio.h>
@@ -72,7 +74,7 @@ extern "C" void SystemNative_SetKeypadXmit(const char* terminfoString)
 }
 
 static bool g_readInProgress = false;        // tracks whether a read is currently in progress, such that attributes have been changed
-static bool g_signalForBreak = true;        // tracks whether the terminal should send signals for breaks
+static bool g_signalForBreak = true;         // tracks whether the terminal should send signals for breaks, such that attributes have been changed
 static bool g_haveInitTermios = false;       // whether g_initTermios has been initialized
 static struct termios g_initTermios = {};    // the initial attributes captured when Console was initialized
 static struct termios g_preReadTermios = {}; // the original attributes captured before a read; valid if g_readInProgress is true
@@ -80,9 +82,18 @@ static struct termios g_currTermios = {};    // the current attributes set durin
 
 static void UninitializeConsole()
 {
-    // Put the attributes back to what they were when the console was initially initialized
-    if (g_haveInitTermios)
-        tcsetattr(STDIN_FILENO, TCSANOW, &g_initTermios); // ignore any failure
+    // Put the attributes back to what they were when the console was initially initialized.
+    // We only do so, however, if we have explicitly modified the termios; doing so always
+    // can result in problems if the app is in the background, as then attempting to call
+    // tcsetattr on STDIN_FILENO will suspend the app and prevent its shutdown. We also don't
+    // want to, for example, just compare g_currTermios with g_initTermios, as we'd then be
+    // factoring in changes made by other apps or by user code.
+    if (g_haveInitTermios &&                     // we successfully initialized the console
+        (g_readInProgress || !g_signalForBreak)) // we modified attributes
+    {
+        tcsetattr(STDIN_FILENO, TCSANOW, &g_initTermios);
+        // ignore any failure
+    }
 }
 
 static void IncorporateBreak(struct termios *termios, int32_t signalForBreak)
@@ -372,7 +383,7 @@ void* SignalHandlerLoop(void* arg)
             return nullptr;
         }
 
-        assert(signalCode == SIGQUIT || signalCode == SIGINT);
+        assert_msg(signalCode == SIGQUIT || signalCode == SIGINT, "invalid signalCode", static_cast<int>(signalCode));
 
         // We're now handling SIGQUIT and SIGINT. Invoke the callback, if we have one.
         CtrlCallback callback = g_ctrlCallback;
@@ -383,31 +394,18 @@ void* SignalHandlerLoop(void* arg)
             // be picked up by the previously registered handler.  In the most common case,
             // this will be the default handler, causing the process to be torn down.
             // It could also be a custom handle registered by other code before us.
-            // In the rare case where the signal is set to be ignored, though, we don't
-            // want to do that, as we know our process will simply remain running yet our
-            // handlers will never end up being invoked again. (It's possible that can
-            // happen as well in the custom case, but we can't detect that or handle it well,
-            // at which point we'll just stop responding to the relevant signal here if the
-            // process does remain alive. We only unregister from the relevant handler, though,
-            // so the handler(s) for the other signal(s) will still remain registered.)
 
             if (signalCode == SIGINT)
             {
-                if (reinterpret_cast<void*>(g_origSigIntHandler.sa_sigaction) != reinterpret_cast<void*>(SIG_IGN))
-                {
-                    UninitializeConsole();
-                    sigaction(SIGINT, &g_origSigIntHandler, NULL);
-                    kill(getpid(), SIGINT);
-                }
+                UninitializeConsole();
+                sigaction(SIGINT, &g_origSigIntHandler, NULL);
+                kill(getpid(), SIGINT);
             } 
             else if (signalCode == SIGQUIT)
             {
-                if (reinterpret_cast<void*>(g_origSigQuitHandler.sa_sigaction) != reinterpret_cast<void*>(SIG_IGN))
-                {
-                    UninitializeConsole();
-                    sigaction(SIGQUIT, &g_origSigQuitHandler, NULL);
-                    kill(getpid(), SIGQUIT);
-                }
+                UninitializeConsole();
+                sigaction(SIGQUIT, &g_origSigQuitHandler, NULL);
+                kill(getpid(), SIGQUIT);
             }
 
         }
@@ -430,7 +428,7 @@ static bool InitializeSignalHandling()
     // thread.  We can't do anything interesting in the signal handler,
     // so we instead send a message to another thread that'll do
     // the handling work.
-    if (pipe(g_signalPipe) != 0)
+    if (SystemNative_Pipe(g_signalPipe, PAL_O_CLOEXEC) != 0)
     {
         return false;
     }
@@ -467,11 +465,23 @@ static bool InitializeSignalHandling()
     int rv;
 
     // Hook up signal handlers for use with ctrl-C / ctrl-Break handling
+    // We don't handle ignored signals. If we'd setup a handler, our child processes
+    // would reset to the default on exec causing them to terminate on these signals.
     newAction.sa_sigaction = &TransferSignalToHandlerLoop;
-    rv = sigaction(SIGINT, &newAction, &g_origSigIntHandler);
+    rv = sigaction(SIGINT, NULL, &g_origSigIntHandler);
     assert(rv == 0);
-    rv = sigaction(SIGQUIT, &newAction, &g_origSigQuitHandler);
+    if (reinterpret_cast<void*>(g_origSigIntHandler.sa_sigaction) != reinterpret_cast<void*>(SIG_IGN))
+    {
+        rv = sigaction(SIGINT, &newAction, NULL);
+        assert(rv == 0);
+    }
+    rv = sigaction(SIGQUIT, NULL, &g_origSigQuitHandler);
     assert(rv == 0);
+    if (reinterpret_cast<void*>(g_origSigQuitHandler.sa_sigaction) != reinterpret_cast<void*>(SIG_IGN))
+    {
+        rv = sigaction(SIGQUIT, &newAction, NULL);
+        assert(rv == 0);
+    }
 
     // Hook up signal handlers for use with signals that require us to reinitialize the terminal
     newAction.sa_sigaction = &HandleSignalForReinitialize;

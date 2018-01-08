@@ -28,7 +28,6 @@ namespace System.Text
     //      Forms D & KD have things like 0934, which decomposes to 0933 + 093C, so not normal.
     //      Form IDNA has the above problems plus case mapping, so false (like most encodings)
     //
-    [Serializable]
     internal class ISCIIEncoding : EncodingNLS, ISerializable
     {
         // Constants
@@ -82,8 +81,7 @@ namespace System.Text
 
         void ISerializable.GetObjectData(SerializationInfo info, StreamingContext context)
         {
-            CodePageEncodingSurrogate.SerializeEncoding(this, info, context);
-            info.SetType(typeof(CodePageEncodingSurrogate));
+            throw new PlatformNotSupportedException();
         }
 
         // Our MaxByteCount is 4 times the input size.  That could be because
@@ -134,7 +132,6 @@ namespace System.Text
         }
 
         // Our workhorse version
-        [System.Security.SecurityCritical]  // auto-generated
         public override unsafe int GetByteCount(char* chars, int count, EncoderNLS baseEncoder)
         {
             // Use null pointer to ask GetBytes for count
@@ -142,7 +139,6 @@ namespace System.Text
         }
 
         // Workhorse
-        [System.Security.SecurityCritical]  // auto-generated
         public override unsafe int GetBytes(char* chars, int charCount, byte* bytes, int byteCount, EncoderNLS baseEncoder)
         {
             // Allow null bytes for counting
@@ -318,7 +314,6 @@ namespace System.Text
         }
 
         // Workhorse
-        [System.Security.SecurityCritical]  // auto-generated
         public override unsafe int GetCharCount(byte* bytes, int count, DecoderNLS baseDecoder)
         {
             // Just call GetChars with null chars saying we want count
@@ -331,7 +326,6 @@ namespace System.Text
         // Devenagari F0, B8 -> \u0952
         // Devenagari F0, BF -> \u0970
         // Some characters followed by E9 become a different character instead.
-        [System.Security.SecurityCritical]  // auto-generated
         public override unsafe int GetChars(byte* bytes, int byteCount,
                                                 char* chars, int charCount, DecoderNLS baseDecoder)
         {
@@ -717,7 +711,6 @@ namespace System.Text
             return _defaultCodePage + EncoderFallback.GetHashCode() + DecoderFallback.GetHashCode();
         }
 
-        [Serializable]
         internal class ISCIIEncoder : EncoderNLS
         {
             // Need to remember the default code page (for HasState)
@@ -756,7 +749,6 @@ namespace System.Text
             }
         }
 
-        [Serializable]
         internal class ISCIIDecoder : DecoderNLS
         {
             // Need a place to store any our current code page and last ATR flag

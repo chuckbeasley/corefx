@@ -2,79 +2,45 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information.
 
-using System;
 using System.Diagnostics;
 using System.Diagnostics.Contracts;
-using System.Globalization;
-using System.Runtime.InteropServices;
-using System.Runtime.Serialization;
-using System.Runtime.Versioning;
 using System.Text;
 
 namespace System.IO
 {
     // Class for creating FileStream objects, and some basic file management
     // routines such as Delete, etc.
-    [Serializable]
     public sealed partial class FileInfo : FileSystemInfo
     {
-        private String _name;
+        private string _name;
 
-        [System.Security.SecurityCritical]
         private FileInfo() { }
 
-        [System.Security.SecuritySafeCritical]
-        public FileInfo(String fileName)
+        public FileInfo(string fileName)
+            : this(fileName, isNormalized: false)
         {
-            if (fileName == null)
-                throw new ArgumentNullException(nameof(fileName));
-            Contract.EndContractBlock();
-
-            Init(fileName);
         }
 
-        private FileInfo(SerializationInfo info, StreamingContext context) : base(info, context)
+        internal FileInfo(string originalPath, string fullPath = null, string fileName = null, bool isNormalized = false)
         {
-            _name = Path.GetFileName(OriginalPath);
-            DisplayPath = GetDisplayPath(OriginalPath);
+            // Want to throw the original argument name
+            OriginalPath = originalPath ?? throw new ArgumentNullException("fileName");
+
+            fullPath = fullPath ?? originalPath;
+            Debug.Assert(!isNormalized || !PathInternal.IsPartiallyQualified(fullPath), "should be fully qualified if normalized");
+
+            FullPath = isNormalized ? fullPath ?? originalPath : Path.GetFullPath(fullPath);
+            _name = fileName ?? Path.GetFileName(originalPath);
+            DisplayPath = originalPath;
         }
 
-        [System.Security.SecurityCritical]
-        private void Init(String fileName)
-        {
-            OriginalPath = fileName;
-            // Must fully qualify the path for the security check
-            String fullPath = Path.GetFullPath(fileName);
-
-            _name = Path.GetFileName(fileName);
-            FullPath = fullPath;
-            DisplayPath = GetDisplayPath(fileName);
-        }
-
-        private String GetDisplayPath(String originalPath)
-        {
-            return originalPath;
-        }
-
-        [System.Security.SecuritySafeCritical]
-        internal FileInfo(String fullPath, String originalPath)
-        {
-            Debug.Assert(Path.IsPathRooted(fullPath), "fullPath must be fully qualified!");
-            _name = originalPath ?? Path.GetFileName(fullPath);
-            OriginalPath = _name;
-            FullPath = fullPath;
-            DisplayPath = _name;
-        }
-
-        public override String Name
+        public override string Name
         {
             get { return _name; }
         }
 
-
         public long Length
         {
-            [System.Security.SecuritySafeCritical]  // auto-generated
             get
             {
                 if ((FileSystemObject.Attributes & FileAttributes.Directory) == FileAttributes.Directory)
@@ -86,9 +52,8 @@ namespace System.IO
         }
 
         /* Returns the name of the directory that the file is in */
-        public String DirectoryName
+        public string DirectoryName
         {
-            [System.Security.SecuritySafeCritical]
             get
             {
                 return Path.GetDirectoryName(FullPath);
@@ -100,7 +65,7 @@ namespace System.IO
         {
             get
             {
-                String dirName = DirectoryName;
+                string dirName = DirectoryName;
                 if (dirName == null)
                     return null;
                 return new DirectoryInfo(dirName);
@@ -122,7 +87,6 @@ namespace System.IO
             }
         }
 
-        [System.Security.SecuritySafeCritical]  // auto-generated
         public StreamReader OpenText()
         {
             return new StreamReader(FullPath, Encoding.UTF8, detectEncodingFromByteOrderMarks: true);
@@ -141,23 +105,21 @@ namespace System.IO
 
         // Copies an existing file to a new file. An exception is raised if the
         // destination file already exists. Use the 
-        // Copy(String, String, boolean) method to allow 
+        // Copy(string, string, boolean) method to allow 
         // overwriting an existing file.
         //
         // The caller must have certain FileIOPermissions.  The caller must have
         // Read permission to sourceFileName 
         // and Write permissions to destFileName.
         // 
-        public FileInfo CopyTo(String destFileName)
+        public FileInfo CopyTo(string destFileName)
         {
             if (destFileName == null)
                 throw new ArgumentNullException(nameof(destFileName), SR.ArgumentNull_FileName);
             if (destFileName.Length == 0)
                 throw new ArgumentException(SR.Argument_EmptyFileName, nameof(destFileName));
-            Contract.EndContractBlock();
 
-            destFileName = File.InternalCopy(FullPath, destFileName, false);
-            return new FileInfo(destFileName, null);
+            return new FileInfo(File.InternalCopy(FullPath, destFileName, false), isNormalized: true);
         }
 
 
@@ -170,7 +132,7 @@ namespace System.IO
         // Read permission to sourceFileName and Create
         // and Write permissions to destFileName.
         // 
-        public FileInfo CopyTo(String destFileName, bool overwrite)
+        public FileInfo CopyTo(string destFileName, bool overwrite)
         {
             if (destFileName == null)
                 throw new ArgumentNullException(nameof(destFileName), SR.ArgumentNull_FileName);
@@ -178,8 +140,7 @@ namespace System.IO
                 throw new ArgumentException(SR.Argument_EmptyFileName, nameof(destFileName));
             Contract.EndContractBlock();
 
-            destFileName = File.InternalCopy(FullPath, destFileName, overwrite);
-            return new FileInfo(destFileName, null);
+            return new FileInfo(File.InternalCopy(FullPath, destFileName, overwrite), isNormalized: true);
         }
 
         public FileStream Create()
@@ -197,7 +158,6 @@ namespace System.IO
         // 
         // Your application must have Delete permission to the target file.
         // 
-        [System.Security.SecuritySafeCritical]
         public override void Delete()
         {
             FileSystem.Current.DeleteFile(FullPath);
@@ -210,7 +170,6 @@ namespace System.IO
         // Your application must have Read permission for the target directory.
         public override bool Exists
         {
-            [System.Security.SecuritySafeCritical]  // auto-generated
             get
             {
                 try
@@ -240,14 +199,11 @@ namespace System.IO
             return new FileStream(FullPath, mode, access, share);
         }
 
-
-        [System.Security.SecuritySafeCritical]  // auto-generated
         public FileStream OpenRead()
         {
             return new FileStream(FullPath, FileMode.Open, FileAccess.Read,
                                   FileShare.Read, 4096, false);
         }
-
 
         public FileStream OpenWrite()
         {
@@ -263,8 +219,7 @@ namespace System.IO
         // sourceFileName and Write 
         // permissions to destFileName.
         // 
-        [System.Security.SecuritySafeCritical]
-        public void MoveTo(String destFileName)
+        public void MoveTo(string destFileName)
         {
             if (destFileName == null)
                 throw new ArgumentNullException(nameof(destFileName));
@@ -272,7 +227,7 @@ namespace System.IO
                 throw new ArgumentException(SR.Argument_EmptyFileName, nameof(destFileName));
             Contract.EndContractBlock();
 
-            String fullDestFileName = Path.GetFullPath(destFileName);
+            string fullDestFileName = Path.GetFullPath(destFileName);
 
             // These checks are in place to ensure Unix error throwing happens the same way
             // as it does on Windows.These checks can be removed if a solution to #2460 is
@@ -291,24 +246,24 @@ namespace System.IO
             FullPath = fullDestFileName;
             OriginalPath = destFileName;
             _name = Path.GetFileName(fullDestFileName);
-            DisplayPath = GetDisplayPath(destFileName);
+            DisplayPath = destFileName;
             // Flush any cached information about the file.
             Invalidate();
         }
 
-        public FileInfo Replace(String destinationFileName, String destinationBackupFileName)
+        public FileInfo Replace(string destinationFileName, string destinationBackupFileName)
         {
             return Replace(destinationFileName, destinationBackupFileName, ignoreMetadataErrors: false);
         }
 
-        public FileInfo Replace(String destinationFileName, String destinationBackupFileName, bool ignoreMetadataErrors)
+        public FileInfo Replace(string destinationFileName, string destinationBackupFileName, bool ignoreMetadataErrors)
         {
             File.Replace(FullPath, destinationFileName, destinationBackupFileName, ignoreMetadataErrors);
             return new FileInfo(destinationFileName);
         }
 
         // Returns the display path
-        public override String ToString()
+        public override string ToString()
         {
             return DisplayPath;
         }

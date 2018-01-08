@@ -9,9 +9,6 @@ using System.Security.Permissions;
 
 namespace System.DirectoryServices.AccountManagement
 {
-#pragma warning disable 618    // Have not migrated to v4 transparency yet
-    [System.Security.SecurityCritical(System.Security.SecurityCriticalScope.Everything)]
-#pragma warning restore 618
     [DirectoryRdnPrefix("CN")]
     public class GroupPrincipal : Principal
     {
@@ -21,7 +18,7 @@ namespace System.DirectoryServices.AccountManagement
         public GroupPrincipal(PrincipalContext context)
         {
             if (context == null)
-                throw new ArgumentException(StringResources.NullArguments);
+                throw new ArgumentException(SR.NullArguments);
 
             this.ContextRaw = context;
             this.unpersisted = true;
@@ -30,7 +27,7 @@ namespace System.DirectoryServices.AccountManagement
         public GroupPrincipal(PrincipalContext context, string samAccountName) : this(context)
         {
             if (samAccountName == null)
-                throw new ArgumentException(StringResources.NullArguments);
+                throw new ArgumentException(SR.NullArguments);
 
             if (Context.ContextType != ContextType.ApplicationDirectory)
                 this.SamAccountName = samAccountName;

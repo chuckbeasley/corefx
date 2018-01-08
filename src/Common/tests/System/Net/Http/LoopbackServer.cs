@@ -10,6 +10,7 @@ using System.Net.NetworkInformation;
 using System.Net.Security;
 using System.Net.Sockets;
 using System.Security.Authentication;
+using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading;
@@ -27,6 +28,8 @@ namespace System.Net.Test.Common
             public int ListenBacklog { get; set; } = 1;
             public bool UseSsl { get; set; } = false;
             public SslProtocols SslProtocols { get; set; } = SslProtocols.Tls | SslProtocols.Tls11 | SslProtocols.Tls12;
+            public bool WebSocketEndpoint { get; set; } = false;
+            public Func<Stream, Stream> ResponseStreamWrapper { get; set; }
         }
 
         public static Task CreateServerAsync(Func<Socket, Uri, Task> funcAsync, Options options = null)
@@ -49,7 +52,14 @@ namespace System.Net.Test.Common
                 string host = options.Address.AddressFamily == AddressFamily.InterNetworkV6 ? 
                     $"[{localEndPoint.Address}]" :
                     localEndPoint.Address.ToString();
-                var url = new Uri($"{(options.UseSsl ? "https" : "http")}://{host}:{localEndPoint.Port}/");
+
+                string scheme = options.UseSsl ? "https" : "http";
+                if (options.WebSocketEndpoint)
+                {
+                    scheme = options.UseSsl ? "wss" : "ws";
+                }
+
+                var url = new Uri($"{scheme}://{host}:{localEndPoint.Port}/");
 
                 return funcAsync(server, url).ContinueWith(t =>
                 {
@@ -90,15 +100,60 @@ namespace System.Net.Test.Common
             }
 
             await writer.WriteAsync(response ?? DefaultHttpResponse).ConfigureAwait(false);
-            s.Shutdown(SocketShutdown.Send);
 
             return lines;
+        }
+
+        public static async Task<bool> WebSocketHandshakeAsync(Socket s, StreamReader reader, StreamWriter writer)
+        {
+            string serverResponse = null;
+            string currentRequestLine;
+            while (!string.IsNullOrEmpty(currentRequestLine = await reader.ReadLineAsync().ConfigureAwait(false)))
+            {
+                string[] tokens = currentRequestLine.Split(new char[] { ':' }, 2);
+                if (tokens.Length == 2)
+                {
+                    string headerName = tokens[0];
+                    if (headerName == "Sec-WebSocket-Key")
+                    {
+                        string headerValue = tokens[1].Trim();
+                        string responseSecurityAcceptValue = ComputeWebSocketHandshakeSecurityAcceptValue(headerValue);
+                        serverResponse =
+                            "HTTP/1.1 101 Switching Protocols\r\n" +
+                            "Upgrade: websocket\r\n" +
+                            "Connection: Upgrade\r\n" +
+                            "Sec-WebSocket-Accept: " + responseSecurityAcceptValue + "\r\n\r\n";
+                    }
+                }
+            }
+
+            if (serverResponse != null)
+            {
+                // We received a valid WebSocket opening handshake. Send the appropriate response.
+                await writer.WriteAsync(serverResponse).ConfigureAwait(false);
+                return true;
+            }
+
+            return false;
+        }
+
+        private static string ComputeWebSocketHandshakeSecurityAcceptValue(string secWebSocketKey)
+        {
+            // GUID specified by RFC 6455.
+            const string Rfc6455Guid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+            string combinedKey = secWebSocketKey + Rfc6455Guid;
+
+            // Use of SHA1 hash is required by RFC 6455.
+            SHA1 sha1Provider = new SHA1CryptoServiceProvider();
+            byte[] sha1Hash = sha1Provider.ComputeHash(Encoding.UTF8.GetBytes(combinedKey));
+            return Convert.ToBase64String(sha1Hash);
         }
 
         public static async Task<List<string>> AcceptSocketAsync(Socket server, Func<Socket, Stream, StreamReader, StreamWriter, Task<List<string>>> funcAsync, Options options = null)
         {
             options = options ?? new Options();
-            using (Socket s = await server.AcceptAsync().ConfigureAwait(false))
+            Socket s = await server.AcceptAsync().ConfigureAwait(false);
+            try
             {
                 Stream stream = new NetworkStream(s, ownsSocket: false);
                 if (options.UseSsl)
@@ -107,18 +162,30 @@ namespace System.Net.Test.Common
                     using (var cert = Configuration.Certificates.GetServerCertificate())
                     {
                         await sslStream.AuthenticateAsServerAsync(
-                            cert, 
+                            cert,
                             clientCertificateRequired: true, // allowed but not required
-                            enabledSslProtocols: options.SslProtocols, 
+                            enabledSslProtocols: options.SslProtocols,
                             checkCertificateRevocation: false).ConfigureAwait(false);
                     }
                     stream = sslStream;
                 }
 
                 using (var reader = new StreamReader(stream, Encoding.ASCII))
-                using (var writer = new StreamWriter(stream, Encoding.ASCII) { AutoFlush = true })
+                using (var writer = new StreamWriter(options?.ResponseStreamWrapper?.Invoke(stream) ?? stream, Encoding.ASCII) { AutoFlush = true })
                 {
                     return await funcAsync(s, stream, reader, writer).ConfigureAwait(false);
+                }
+            }
+            finally
+            {
+                try
+                {
+                    s.Shutdown(SocketShutdown.Send);
+                    s.Dispose();
+                }
+                catch (ObjectDisposedException)
+                {
+                    // In case the test itself disposes of the socket
                 }
             }
         }
@@ -191,10 +258,8 @@ namespace System.Net.Test.Common
                     await writer.WriteAsync($"{content}\r\n").ConfigureAwait(false);
                 }
 
-                client.Shutdown(SocketShutdown.Both);
-                
                 return null;
             }), out localEndPoint);
-        }
+        }        
     }
 }

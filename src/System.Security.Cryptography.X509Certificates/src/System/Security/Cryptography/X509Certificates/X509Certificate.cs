@@ -12,7 +12,6 @@ using System.Text;
 
 namespace System.Security.Cryptography.X509Certificates
 {
-    [Serializable]
     public class X509Certificate : IDisposable, IDeserializationCallback, ISerializable
     {
         private volatile byte[] _lazyCertHash;
@@ -165,14 +164,7 @@ namespace System.Security.Cryptography.X509Certificates
         [System.Diagnostics.CodeAnalysis.SuppressMessage("Microsoft.Usage", "CA2229", Justification = "Public API has already shipped.")]
         public X509Certificate(SerializationInfo info, StreamingContext context) : this()
         {
-            byte[] rawData = (byte[])info.GetValue("RawData", typeof(byte[]));
-            if (rawData != null)
-            {
-                using (var safePasswordHandle = new SafePasswordHandle((string)null))
-                {
-                    Pal = CertificatePal.FromBlob(rawData, safePasswordHandle, X509KeyStorageFlags.DefaultKeySet);
-                }
-            }
+            throw new PlatformNotSupportedException();
         }
 
         public static X509Certificate CreateFromCertFile(string filename)
@@ -187,10 +179,13 @@ namespace System.Security.Cryptography.X509Certificates
 
         void ISerializable.GetObjectData(SerializationInfo info, StreamingContext context)
         {
-            info.AddValue("RawData", Pal?.RawData);
+            throw new PlatformNotSupportedException();
         }
 
-        void IDeserializationCallback.OnDeserialization(object sender) { }
+        void IDeserializationCallback.OnDeserialization(object sender)
+        {
+            throw new PlatformNotSupportedException();
+        }
 
         public IntPtr Handle
         {
@@ -321,10 +316,42 @@ namespace System.Security.Cryptography.X509Certificates
             return GetRawCertHash().CloneByteArray();
         }
 
+        public virtual byte[] GetCertHash(HashAlgorithmName hashAlgorithm)
+        {
+            ThrowIfInvalid();
+
+            using (IncrementalHash hasher = IncrementalHash.CreateHash(hashAlgorithm))
+            {
+                hasher.AppendData(Pal.RawData);
+                return hasher.GetHashAndReset();
+            }
+        }
+
+        public virtual bool TryGetCertHash(
+            HashAlgorithmName hashAlgorithm,
+            Span<byte> destination,
+            out int bytesWritten)
+        {
+            ThrowIfInvalid();
+
+            using (IncrementalHash hasher = IncrementalHash.CreateHash(hashAlgorithm))
+            {
+                hasher.AppendData(Pal.RawData);
+                return hasher.TryGetHashAndReset(destination, out bytesWritten);
+            }
+        }
+
         public virtual string GetCertHashString()
         {
             ThrowIfInvalid();
             return GetRawCertHash().ToHexStringUpper();
+        }
+
+        public virtual string GetCertHashString(HashAlgorithmName hashAlgorithm)
+        {
+            ThrowIfInvalid();
+
+            return GetCertHash(hashAlgorithm).ToHexStringUpper();
         }
 
         // Only use for internal purposes when the returned byte[] will not be mutated
@@ -500,34 +527,34 @@ namespace System.Security.Cryptography.X509Certificates
 
         public virtual void Import(byte[] rawData)
         {
-            throw new PlatformNotSupportedException();
+            throw new PlatformNotSupportedException(SR.NotSupported_ImmutableX509Certificate);
         }
 
         public virtual void Import(byte[] rawData, string password, X509KeyStorageFlags keyStorageFlags)
         {
-            throw new PlatformNotSupportedException();
+            throw new PlatformNotSupportedException(SR.NotSupported_ImmutableX509Certificate);
         }
 
         [System.CLSCompliantAttribute(false)]
         public virtual void Import(byte[] rawData, SecureString password, X509KeyStorageFlags keyStorageFlags)
         {
-            throw new PlatformNotSupportedException();
+            throw new PlatformNotSupportedException(SR.NotSupported_ImmutableX509Certificate);
         }
 
         public virtual void Import(string fileName)
         {
-            throw new PlatformNotSupportedException();
+            throw new PlatformNotSupportedException(SR.NotSupported_ImmutableX509Certificate);
         }
 
         public virtual void Import(string fileName, string password, X509KeyStorageFlags keyStorageFlags)
         {
-            throw new PlatformNotSupportedException();
+            throw new PlatformNotSupportedException(SR.NotSupported_ImmutableX509Certificate);
         }
 
         [System.CLSCompliantAttribute(false)]
         public virtual void Import(string fileName, SecureString password, X509KeyStorageFlags keyStorageFlags)
         {
-            throw new PlatformNotSupportedException();
+            throw new PlatformNotSupportedException(SR.NotSupported_ImmutableX509Certificate);
         }
 
         internal ICertificatePal Pal { get; private set; }

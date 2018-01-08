@@ -2,14 +2,13 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information.
 
-using System;
 using System.Collections.Generic;
 using System.Globalization;
 using Xunit;
 
 namespace System.Tests
 {
-    public static class UInt64Tests
+    public partial class UInt64Tests
     {
         [Fact]
         public static void Ctor_Empty()
@@ -45,22 +44,22 @@ namespace System.Tests
         [InlineData((ulong)234, (ulong)456, -1)]
         [InlineData((ulong)234, ulong.MaxValue, -1)]
         [InlineData((ulong)234, null, 1)]
-        public static void CompareTo(ulong i, object value, int expected)
+        public void CompareTo_Other_ReturnsExpected(ulong i, object value, int expected)
         {
-            if (value is ulong)
+            if (value is ulong ulongValue)
             {
-                Assert.Equal(expected, Math.Sign(i.CompareTo((ulong)value)));
+                Assert.Equal(expected, Math.Sign(i.CompareTo(ulongValue)));
             }
-            IComparable comparable = i;
-            Assert.Equal(expected, Math.Sign(comparable.CompareTo(value)));
+
+            Assert.Equal(expected, Math.Sign(i.CompareTo(value)));
         }
 
-        [Fact]
-        public static void CompareTo_ObjectNotULong_ThrowsArgumentException()
+        [Theory]
+        [InlineData("a")]
+        [InlineData(234)]
+        public void CompareTo_ObjectNotUlong_ThrowsArgumentException(object value)
         {
-            IComparable comparable = (ulong)234;
-            Assert.Throws<ArgumentException>(null, () => comparable.CompareTo("a")); // Obj is not a ulong
-            Assert.Throws<ArgumentException>(null, () => comparable.CompareTo(234)); // Obj is not a ulong
+            AssertExtensions.Throws<ArgumentException>(null, () => ((ulong)123).CompareTo(value));
         }
 
         [Theory]
@@ -72,9 +71,8 @@ namespace System.Tests
         [InlineData((ulong)789, 789, false)]
         public static void Equals(ulong i1, object obj, bool expected)
         {
-            if (obj is ulong)
+            if (obj is ulong i2)
             {
-                ulong i2 = (ulong)obj;
                 Assert.Equal(expected, i1.Equals(i2));
                 Assert.Equal(expected, i1.GetHashCode().Equals(i2.GetHashCode()));
                 Assert.Equal((int)i1, i1.GetHashCode());
@@ -82,25 +80,47 @@ namespace System.Tests
             Assert.Equal(expected, i1.Equals(obj));
         }
 
-        public static IEnumerable<object[]> ToStringTestData()
+        [Fact]
+        public void GetTypeCode_Invoke_ReturnsUInt64()
         {
-            NumberFormatInfo emptyFormat = NumberFormatInfo.CurrentInfo;
-            yield return new object[] { (ulong)0, "G", emptyFormat, "0" };
-            yield return new object[] { (ulong)4567, "G", emptyFormat, "4567" };
-            yield return new object[] { ulong.MaxValue, "G", emptyFormat, "18446744073709551615" };
+            Assert.Equal(TypeCode.UInt64, ((ulong)1).GetTypeCode());
+        }
 
-            yield return new object[] { (ulong)0x2468, "x", emptyFormat, "2468" };
-            yield return new object[] { (ulong)2468, "N", emptyFormat, string.Format("{0:N}", 2468.00) };
+        public static IEnumerable<object[]> ToString_TestData()
+        {
+            foreach (NumberFormatInfo defaultFormat in new[] { null, NumberFormatInfo.CurrentInfo })
+            {
+                yield return new object[] { (ulong)0, "G", defaultFormat, "0" };
+                yield return new object[] { (ulong)4567, "G", defaultFormat, "4567" };
+                yield return new object[] { ulong.MaxValue, "G", defaultFormat, "18446744073709551615" };
 
-            NumberFormatInfo customFormat = new NumberFormatInfo();
-            customFormat.NegativeSign = "#";
-            customFormat.NumberDecimalSeparator = "~";
-            customFormat.NumberGroupSeparator = "*";
+                yield return new object[] { (ulong)4567, "D", defaultFormat, "4567" };
+                yield return new object[] { (ulong)4567, "D18", defaultFormat, "000000000000004567" };
+
+                yield return new object[] { (ulong)0x2468, "x", defaultFormat, "2468" };
+                yield return new object[] { (ulong)2468, "N", defaultFormat, string.Format("{0:N}", 2468.00) };
+            }
+
+            var customFormat = new NumberFormatInfo()
+            {
+                NegativeSign = "#",
+                NumberDecimalSeparator = "~",
+                NumberGroupSeparator = "*",
+                PositiveSign = "&",
+                NumberDecimalDigits = 2,
+                PercentSymbol = "@",
+                PercentGroupSeparator = ",",
+                PercentDecimalSeparator = ".",
+                PercentDecimalDigits = 5
+            };
             yield return new object[] { (ulong)2468, "N", customFormat, "2*468~00" };
+            yield return new object[] { (ulong)123, "E", customFormat, "1~230000E&002" };
+            yield return new object[] { (ulong)123, "F", customFormat, "123~00" };
+            yield return new object[] { (ulong)123, "P", customFormat, "12,300.00000 @" };
         }
 
         [Theory]
-        [MemberData(nameof(ToStringTestData))]
+        [MemberData(nameof(ToString_TestData))]
         public static void ToString(ulong i, string format, IFormatProvider provider, string expected)
         {
             // Format is case insensitive
@@ -267,16 +287,16 @@ namespace System.Tests
         }
 
         [Theory]
-        [InlineData(NumberStyles.HexNumber | NumberStyles.AllowParentheses)]
-        [InlineData(unchecked((NumberStyles)0xFFFFFC00))]
-        public static void TryParse_InvalidNumberStyle_ThrowsArgumentException(NumberStyles style)
+        [InlineData(NumberStyles.HexNumber | NumberStyles.AllowParentheses, null)]
+        [InlineData(unchecked((NumberStyles)0xFFFFFC00), "style")]
+        public static void TryParse_InvalidNumberStyle_ThrowsArgumentException(NumberStyles style, string paramName)
         {
             ulong result = 0;
-            Assert.Throws<ArgumentException>(() => ulong.TryParse("1", style, null, out result));
+            AssertExtensions.Throws<ArgumentException>(paramName, () => ulong.TryParse("1", style, null, out result));
             Assert.Equal(default(ulong), result);
 
-            Assert.Throws<ArgumentException>(() => ulong.Parse("1", style));
-            Assert.Throws<ArgumentException>(() => ulong.Parse("1", style, null));
+            AssertExtensions.Throws<ArgumentException>(paramName, () => ulong.Parse("1", style));
+            AssertExtensions.Throws<ArgumentException>(paramName, () => ulong.Parse("1", style, null));
         }
     }
 }

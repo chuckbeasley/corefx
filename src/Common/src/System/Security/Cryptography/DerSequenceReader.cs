@@ -24,6 +24,8 @@ namespace System.Security.Cryptography
         internal const byte ContextSpecificConstructedTag3 = ContextSpecificConstructedTag0 | 3;
         internal const byte ConstructedSequence = ConstructedFlag | (byte)DerTag.Sequence;
 
+        // 0b1100_0000
+        internal const byte TagClassMask = 0xC0; 
         internal const byte TagNumberMask = 0x1F;
 
         internal static DateTimeFormatInfo s_validityDateTimeFormatInfo;
@@ -34,16 +36,17 @@ namespace System.Security.Cryptography
 
         internal int ContentLength { get; private set; }
 
-        private DerSequenceReader(bool startAtPayload, byte[] data)
+        private DerSequenceReader(bool startAtPayload, byte[] data, int offset, int length)
         {
             Debug.Assert(startAtPayload, "This overload is only for bypassing the sequence tag");
             Debug.Assert(data != null, "Data is null");
+            Debug.Assert(offset >= 0, "Offset is negative");
 
             _data = data;
-            _position = 0;
-            _end = data.Length;
+            _position = offset;
+            _end = offset + length;
 
-            ContentLength = data.Length;
+            ContentLength = length;
         }
 
         internal DerSequenceReader(byte[] data)
@@ -56,25 +59,28 @@ namespace System.Security.Cryptography
         {
         }
 
-        internal DerSequenceReader(DerTag tagToEat, byte[] data, int offset, int length)
+        private DerSequenceReader(DerTag tagToEat, byte[] data, int offset, int length)
         {
-            _data = data;
-            _end = offset + length;
-
             Debug.Assert(data != null, "Data is null");
-            Debug.Assert(offset >= 0, "Offset is negative");
 
-            if (length < 2 || length > data.Length - offset)
+            if (offset < 0 || length < 2 || length > data.Length - offset)
                 throw new CryptographicException(SR.Cryptography_Der_Invalid_Encoding);
 
+            _data = data;
+            _end = offset + length;
             _position = offset;
             EatTag(tagToEat);
-            ContentLength = EatLength();
+            int contentLength = EatLength();
+            Debug.Assert(_end - contentLength >= _position);
+            ContentLength = contentLength;
+
+            // If the sequence reports being smaller than the buffer, shrink the end-of-validity.
+            _end = _position + contentLength;
         }
 
         internal static DerSequenceReader CreateForPayload(byte[] payload)
         {
-            return new DerSequenceReader(true, payload);
+            return new DerSequenceReader(true, payload, 0, payload.Length);
         }
 
         internal bool HasData
@@ -87,7 +93,14 @@ namespace System.Security.Cryptography
             if (!HasData)
                 throw new CryptographicException(SR.Cryptography_Der_Invalid_Encoding);
 
-            return _data[_position];
+            byte tag = _data[_position];
+
+            if ((tag & TagNumberMask) == TagNumberMask)
+            {
+                throw new CryptographicException(SR.Cryptography_Der_Invalid_Encoding);
+            }
+
+            return tag;
         }
 
         internal bool HasTag(DerTag expectedTag)
@@ -107,16 +120,75 @@ namespace System.Security.Cryptography
             _position += contentLength;
         }
 
+        internal void ValidateAndSkipDerValue()
+        {
+            byte tag = PeekTag();
+
+            // If the tag is in the UNIVERSAL class
+            if ((tag & TagClassMask) == 0)
+            {
+                // Tag 0 is special ("reserved for use by the encoding rules"), but mainly is used
+                // as the End-of-Contents marker for the indefinite length encodings, which DER prohibits.
+                //
+                // Tag 15 is reserved.
+                //
+                // So either of these are invalid.
+
+                if (tag == 0 || tag == 15)
+                    throw new CryptographicException(SR.Cryptography_Der_Invalid_Encoding);
+
+                // DER limits the constructed encoding to SEQUENCE and SET, as well as anything which gets
+                // a defined encoding as being an IMPLICIT SEQUENCE.
+
+                bool expectConstructed = false;
+
+                switch (tag & TagNumberMask)
+                {
+                    case 0x08: // External or Instance-Of
+                    case 0x0B: // EmbeddedPDV
+                    case (byte)DerTag.Sequence:
+                    case (byte)DerTag.Set:
+                    case 0x1D: // Unrestricted Character String
+                        expectConstructed = true;
+                        break;
+                }
+
+                bool isConstructed = (tag & ConstructedFlag) == ConstructedFlag;
+
+                if (expectConstructed != isConstructed)
+                    throw new CryptographicException(SR.Cryptography_Der_Invalid_Encoding);
+            }
+
+            EatTag((DerTag)tag);
+            int contentLength = EatLength();
+
+            if (contentLength > 0 && (tag & ConstructedFlag) == ConstructedFlag)
+            {
+                var childReader = new DerSequenceReader(true, _data, _position, _end - _position);
+
+                while (childReader.HasData)
+                {
+                    childReader.ValidateAndSkipDerValue();
+                }
+            }
+
+            _position += contentLength;
+        }
+
         /// <summary>
         /// Returns the next value encoded (this includes tag and length)
         /// </summary>
         internal byte[] ReadNextEncodedValue()
         {
+            // Check that the tag is legal, but the value isn't relevant.
+            PeekTag();
+
             int lengthLength;
-            int contentLength = ScanContentLength(_data, _position + 1, out lengthLength);
+            int contentLength = ScanContentLength(_data, _position + 1, _end, out lengthLength);
             // Length of tag, encoded length, and the content
             int totalLength = 1 + lengthLength + contentLength;
-
+            Debug.Assert(_end - totalLength >= _position);
+            
             byte[] encodedValue = new byte[totalLength];
             Buffer.BlockCopy(_data, _position, encodedValue, 0, totalLength);
 
@@ -161,6 +233,15 @@ namespace System.Security.Cryptography
             EatTag(DerTag.BitString);
 
             int contentLength = EatLength();
+
+            if (contentLength < 1)
+                throw new CryptographicException(SR.Cryptography_Der_Invalid_Encoding);
+
+            byte unusedBits = _data[_position];
+
+            if (unusedBits > 7)
+                throw new CryptographicException(SR.Cryptography_Der_Invalid_Encoding);
+
             // skip the "unused bits" byte
             contentLength--;
             _position++;
@@ -183,6 +264,9 @@ namespace System.Security.Cryptography
         {
             EatTag(DerTag.ObjectIdentifier);
             int contentLength = EatLength();
+
+            if (contentLength < 1)
+                throw new CryptographicException(SR.Cryptography_Der_Invalid_Encoding);
 
             // Each byte could cause 3 decimal characters to be written, plus a period. Over-allocate
             // and avoid re-alloc.
@@ -256,7 +340,7 @@ namespace System.Security.Cryptography
             CheckTag(expected, _data, _position);
 
             int lengthLength;
-            int contentLength = ScanContentLength(_data, _position + 1, out lengthLength);
+            int contentLength = ScanContentLength(_data, _position + 1, _end, out lengthLength);
             int totalLength = 1 + lengthLength + contentLength;
 
             DerSequenceReader reader = new DerSequenceReader(expected, _data, _position, totalLength);
@@ -426,6 +510,13 @@ namespace System.Security.Cryptography
                 throw new CryptographicException(SR.Cryptography_Der_Invalid_Encoding);
 
             byte actual = data[position];
+            byte relevant = (byte)(actual & TagNumberMask);
+
+            // Multi-byte tags are not supported by this implementation.
+            if (relevant == TagNumberMask)
+            {
+                throw new CryptographicException(SR.Cryptography_Der_Invalid_Encoding);
+            }
 
             // Context-specific datatypes cannot be tag-verified
             if ((actual & ContextSpecificTagFlag) != 0)
@@ -433,7 +524,6 @@ namespace System.Security.Cryptography
                 return;
             }
 
-            byte relevant = (byte)(actual & TagNumberMask);
             byte expectedByte = (byte)((byte)expected & TagNumberMask);
 
             if (expectedByte != relevant)
@@ -454,50 +544,69 @@ namespace System.Security.Cryptography
         private int EatLength()
         {
             int bytesConsumed;
-            int answer = ScanContentLength(_data, _position, out bytesConsumed);
+            int answer = ScanContentLength(_data, _position, _end, out bytesConsumed);
 
             _position += bytesConsumed;
             return answer;
         }
 
-        private static int ScanContentLength(byte[] data, int offset, out int bytesConsumed)
+        private static int ScanContentLength(byte[] data, int offset, int end, out int bytesConsumed)
         {
-            if (offset >= data.Length)
+            Debug.Assert(end <= data.Length);
+
+            if (offset >= end)
                 throw new CryptographicException(SR.Cryptography_Der_Invalid_Encoding);
 
             byte lengthOrLengthLength = data[offset];
 
             if (lengthOrLengthLength < 0x80)
             {
-                if (lengthOrLengthLength > data.Length - offset)
+                bytesConsumed = 1;
+
+                if (lengthOrLengthLength > end - offset - bytesConsumed)
                     throw new CryptographicException(SR.Cryptography_Der_Invalid_Encoding);
 
-                bytesConsumed = 1;
                 return lengthOrLengthLength;
             }
 
-            // The one byte which was lengthLength, plus the number of bytes it said to consume.
-            bytesConsumed = 1 + (lengthOrLengthLength & 0x7F);
+            int lengthLength = (lengthOrLengthLength & 0x7F);
 
-            if (bytesConsumed > data.Length - offset)
+            if (lengthLength > sizeof(int))
+            {
+                // .NET Arrays cannot exceed int.MaxValue in length. Since we're bounded by an
+                // array we know that this is invalid data.
+                throw new CryptographicException(SR.Cryptography_Der_Invalid_Encoding);
+            }
+
+            // The one byte which was lengthLength, plus the number of bytes it said to consume.
+            bytesConsumed = 1 + lengthLength;
+
+            if (bytesConsumed > end - offset)
                 throw new CryptographicException(SR.Cryptography_Der_Invalid_Encoding);
 
             // CER indefinite length is not supported.
             if (bytesConsumed == 1)
                 throw new CryptographicException(SR.Cryptography_Der_Invalid_Encoding);
 
-            int end = offset + bytesConsumed;
+            int lengthEnd = offset + bytesConsumed;
             int accum = 0;
             
             // data[offset] is lengthLength, so start at data[offset + 1] and stop before
             // data[offset + 1 + lengthLength], aka data[end].
-            for (int i = offset + 1; i < end; i++)
+            for (int i = offset + 1; i < lengthEnd; i++)
             {
                 accum <<= 8;
-                accum += data[i];
+                accum |= data[i];
             }
 
-            if (accum > data.Length - offset - bytesConsumed)
+            if (accum < 0)
+            {
+                // .NET Arrays cannot exceed int.MaxValue in length. Since we're bounded by an
+                // array we know that this is invalid data.
+                throw new CryptographicException(SR.Cryptography_Der_Invalid_Encoding);
+            }
+
+            if (accum > end - offset - bytesConsumed)
                 throw new CryptographicException(SR.Cryptography_Der_Invalid_Encoding);
 
             return accum;

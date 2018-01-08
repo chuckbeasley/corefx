@@ -115,9 +115,11 @@ namespace System.Xml.Serialization
 
         protected abstract void InitIDs();
 
+#if FEATURE_SERIALIZATION_UAPAOT
         // this method must be called before any generated deserialization methods are called
-        internal void Init(XmlReader r, string encodingStyle)
+        internal void Init(XmlReader r, XmlDeserializationEvents events, string encodingStyle)
         {
+            _events = events;
             _r = r;
             _soap12 = (encodingStyle == Soap12.Encoding);
 
@@ -143,6 +145,7 @@ namespace System.Xml.Serialization
             _urTypeID = r.NameTable.Add(Soap.UrType);
             InitIDs();
         }
+#endif
 
         // this method must be called before any generated deserialization methods are called
         internal void Init(XmlReader r, XmlDeserializationEvents events, string encodingStyle, TempAssembly tempAssembly)
@@ -807,7 +810,7 @@ namespace System.Xml.Serialization
                     value = default(Nullable<char>);
                 else if ((object)type.Name == (object)_guidID)
                     value = default(Nullable<Guid>);
-                else if ((object) type.Name == (object) _timeSpanID)
+                else if ((object)type.Name == (object)_timeSpanID)
                     value = default(Nullable<TimeSpan>);
                 else
                     value = null;
@@ -2149,6 +2152,7 @@ namespace System.Xml.Serialization
     ///<internalonly/>
     public delegate object XmlSerializationReadCallback();
 
+#if !FEATURE_SERIALIZATION_UAPAOT
     internal class XmlSerializationReaderCodeGen : XmlSerializationCodeGen
     {
         private Hashtable _idNames = new Hashtable();
@@ -2354,7 +2358,7 @@ namespace System.Xml.Serialization
             Writer.Write(" class ");
             Writer.Write(ClassName);
             Writer.Write(" : ");
-            Writer.Write(typeof(XmlSerializationReader).FullName);
+            Writer.Write(typeof(System.Xml.Serialization.XmlSerializationReader).FullName);
             Writer.WriteLine(" {");
             Writer.Indent++;
             foreach (TypeScope scope in Scopes)
@@ -5221,4 +5225,5 @@ namespace System.Xml.Serialization
             RaCodeGen.WriteLocalDecl(typeFullName, variableName, initValue, useReflection);
         }
     }
+#endif
 }

@@ -34,12 +34,13 @@ namespace System.Collections
     [DebuggerTypeProxy(typeof(System.Collections.ArrayList.ArrayListDebugView))]
     [DebuggerDisplay("Count = {Count}")]
     [Serializable]
+    [System.Runtime.CompilerServices.TypeForwardedFrom("mscorlib, Version=4.0.0.0, Culture=neutral, PublicKeyToken=b77a5c561934e089")]
     public class ArrayList : IList, ICloneable
     {
-        private Object[] _items;
+        private Object[] _items; // Do not rename (binary serialization)
         [ContractPublicPropertyName("Count")]
-        private int _size;
-        private int _version;
+        private int _size; // Do not rename (binary serialization)
+        private int _version; // Do not rename (binary serialization)
         [NonSerialized]
         private Object _syncRoot;
 
@@ -632,7 +633,6 @@ namespace System.Collections
             Contract.Ensures(Count >= 0);
 
             int index = IndexOf(obj);
-            Debug.Assert(index >= 0 || !(obj is Int32), "You passed an Int32 to Remove that wasn't in the ArrayList." + Environment.NewLine + "Did you mean RemoveAt?  int: " + obj + "  Count: " + Count);
             if (index >= 0)
                 RemoveAt(index);
         }
@@ -830,7 +830,6 @@ namespace System.Collections
         // downcasting all elements.  This copy may fail and is an O(n) operation.
         // Internally, this implementation calls Array.Copy.
         //
-        [SecuritySafeCritical]
         public virtual Array ToArray(Type type)
         {
             if (type == null)
@@ -859,7 +858,6 @@ namespace System.Collections
 
         // This class wraps an IList, exposing it as a ArrayList
         // Note this requires reimplementing half of ArrayList...
-        [Serializable]
         private class IListWrapper : ArrayList
         {
             private IList _list;
@@ -1246,7 +1244,6 @@ namespace System.Collections
                 return array;
             }
 
-            [SecuritySafeCritical]
             public override Array ToArray(Type type)
             {
                 if (type == null)
@@ -1264,7 +1261,6 @@ namespace System.Collections
 
             // This is the enumerator for an IList that's been wrapped in another
             // class that implements all of ArrayList's methods.
-            [Serializable]
             private sealed class IListWrapperEnumWrapper : IEnumerator, ICloneable
             {
                 private IEnumerator _en;
@@ -1332,7 +1328,6 @@ namespace System.Collections
             }
         }
 
-        [Serializable]
         private class SyncArrayList : ArrayList
         {
             private ArrayList _list;
@@ -1688,7 +1683,6 @@ namespace System.Collections
         }
 
 
-        [Serializable]
         private class SyncIList : IList
         {
             private IList _list;
@@ -1818,7 +1812,6 @@ namespace System.Collections
             }
         }
 
-        [Serializable]
         private class FixedSizeList : IList
         {
             private IList _list;
@@ -1911,7 +1904,6 @@ namespace System.Collections
             }
         }
 
-        [Serializable]
         private class FixedSizeArrayList : ArrayList
         {
             private ArrayList _list;
@@ -2133,7 +2125,6 @@ namespace System.Collections
             }
         }
 
-        [Serializable]
         private class ReadOnlyList : IList
         {
             private IList _list;
@@ -2226,7 +2217,6 @@ namespace System.Collections
             }
         }
 
-        [Serializable]
         private class ReadOnlyArrayList : ArrayList
         {
             private ArrayList _list;
@@ -2448,7 +2438,6 @@ namespace System.Collections
         // Implements an enumerator for a ArrayList. The enumerator uses the
         // internal version number of the list to ensure that no modifications are
         // made to the list while an enumeration is in progress.
-        [Serializable]
         private sealed class ArrayListEnumerator : IEnumerator, ICloneable
         {
             private ArrayList _list;
@@ -2509,7 +2498,6 @@ namespace System.Collections
 
         // Implementation of a generic list subrange. An instance of this class
         // is returned by the default implementation of List.GetRange.
-        [Serializable]
         private class Range : ArrayList
         {
             private ArrayList _baseList;
@@ -2924,7 +2912,6 @@ namespace System.Collections
                 return array;
             }
 
-            [SecuritySafeCritical]
             public override Array ToArray(Type type)
             {
                 if (type == null)
@@ -2943,7 +2930,6 @@ namespace System.Collections
             }
         }
 
-        [Serializable]
         private sealed class ArrayListEnumeratorSimple : IEnumerator, ICloneable
         {
             private ArrayList _list;

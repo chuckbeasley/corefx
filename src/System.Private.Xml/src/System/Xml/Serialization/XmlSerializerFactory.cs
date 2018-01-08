@@ -14,6 +14,7 @@ namespace System.Xml.Serialization
     using System.Globalization;
     using System.Xml.Serialization.Configuration;
     using System.Diagnostics;
+    using System.Xml.Serialization;
 
 
     /// <include file='doc\XmlSerializerFactory.uex' path='docs/doc[@for="XmlSerializerFactory"]/*' />
@@ -90,11 +91,6 @@ namespace System.Xml.Serialization
         public XmlSerializer CreateSerializer(Type type, XmlAttributeOverrides overrides, Type[] extraTypes, XmlRootAttribute root, string defaultNamespace, string location)
         {
             return new XmlSerializer(type, overrides, extraTypes, root, defaultNamespace, location);
-        }
-
-        private void DemandForUserLocationOrEvidence()
-        {
-            // Ensure full trust before asserting full file access to the user-provided location or evidence
         }
     }
 }

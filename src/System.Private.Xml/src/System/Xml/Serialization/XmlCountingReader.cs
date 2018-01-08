@@ -9,6 +9,7 @@ namespace System.Xml.Serialization
     using System.Text;
     using System;
     using System.Xml.Schema;
+    using System.Xml;
 
     internal class XmlCountingReader : XmlReader, IXmlTextParser, IXmlLineInfo
     {
@@ -53,7 +54,6 @@ namespace System.Xml.Serialization
         public override Type ValueType { get { return _innerReader.ValueType; } }
         public override int AttributeCount { get { return _innerReader.AttributeCount; } }
         public override string this[int i] { get { return _innerReader[i]; } }
-        public override string this[string name] { get { return _innerReader[name]; } }
         public override string this[string name, string namespaceURI] { get { return _innerReader[name, namespaceURI]; } }
         public override bool EOF { get { return _innerReader.EOF; } }
         public override ReadState ReadState { get { return _innerReader.ReadState; } }

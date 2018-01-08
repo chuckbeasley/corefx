@@ -118,7 +118,6 @@ namespace System.DirectoryServices.AccountManagement
         //
         // SID Utilities
         //        
-        [System.Security.SecuritySafeCritical]
 
         internal static string ConvertSidToSDDL(byte[] sid)
         {
@@ -156,7 +155,6 @@ namespace System.DirectoryServices.AccountManagement
 
         // The caller must call Marshal.FreeHGlobal on the returned
         // value to free it.
-        [System.Security.SecurityCritical]
         internal static IntPtr ConvertByteArrayToIntPtr(byte[] bytes)
         {
             IntPtr pBytes = IntPtr.Zero;
@@ -181,7 +179,6 @@ namespace System.DirectoryServices.AccountManagement
             return pBytes;
         }
 
-        [System.Security.SecuritySafeCritical]
 
         internal static byte[] ConvertNativeSidToByteArray(IntPtr pSid)
         {
@@ -192,7 +189,6 @@ namespace System.DirectoryServices.AccountManagement
             return sid;
         }
 
-        [System.Security.SecurityCritical]
         internal static SidType ClassifySID(byte[] sid)
         {
             IntPtr pSid = IntPtr.Zero;
@@ -210,7 +206,6 @@ namespace System.DirectoryServices.AccountManagement
             }
         }
 
-        [System.Security.SecuritySafeCritical]
 
         internal static SidType ClassifySID(IntPtr pSid)
         {
@@ -237,7 +232,7 @@ namespace System.DirectoryServices.AccountManagement
                   (identAuth.b5 == 0) &&
                   (identAuth.b6 == 5))
             {
-                // No, so it can't be a account or builtin SID.
+                // No, so it can't be an account or builtin SID.
                 // Probably something like \Everyone or \LOCAL.
                 return SidType.FakeObject;
             }
@@ -257,7 +252,6 @@ namespace System.DirectoryServices.AccountManagement
             }
         }
 
-        [System.Security.SecuritySafeCritical]
 
         internal static int GetLastRidFromSid(IntPtr pSid)
         {
@@ -269,7 +263,6 @@ namespace System.DirectoryServices.AccountManagement
             return lastRid;
         }
 
-        [System.Security.SecurityCritical]
         internal static int GetLastRidFromSid(byte[] sid)
         {
             IntPtr pSid = IntPtr.Zero;
@@ -292,7 +285,6 @@ namespace System.DirectoryServices.AccountManagement
         //
         //
 
-        [System.Security.SecurityCritical]
         internal static bool IsSamUser()
         {
             //
@@ -356,7 +348,6 @@ namespace System.DirectoryServices.AccountManagement
             }
         }
 
-        [System.Security.SecuritySafeCritical]
 
         internal static IntPtr GetCurrentUserSid()
         {
@@ -394,7 +385,7 @@ namespace System.DirectoryServices.AccountManagement
 
                             throw new PrincipalOperationException(
                                             String.Format(CultureInfo.CurrentCulture,
-                                                          StringResources.UnableToOpenToken,
+                                                          SR.UnableToOpenToken,
                                                           lastError));
                         }
                     }
@@ -404,7 +395,7 @@ namespace System.DirectoryServices.AccountManagement
 
                         throw new PrincipalOperationException(
                                         String.Format(CultureInfo.CurrentCulture,
-                                                      StringResources.UnableToOpenToken,
+                                                      SR.UnableToOpenToken,
                                                       error));
                     }
                 }
@@ -428,7 +419,7 @@ namespace System.DirectoryServices.AccountManagement
                     GlobalDebug.WriteLineIf(GlobalDebug.Error, "Utils", "GetCurrentUserSid: GetTokenInformation (1st try) failed, gle=" + getTokenInfoError);
 
                     throw new PrincipalOperationException(
-                                    String.Format(CultureInfo.CurrentCulture, StringResources.UnableToRetrieveTokenInfo, getTokenInfoError));
+                                    String.Format(CultureInfo.CurrentCulture, SR.UnableToRetrieveTokenInfo, getTokenInfoError));
                 }
 
                 // Allocate the necessary buffer.
@@ -451,7 +442,7 @@ namespace System.DirectoryServices.AccountManagement
                                       "GetCurrentUserSid: GetTokenInformation (2nd try) failed, neededBufferSize=" + neededBufferSize + ", gle=" + lastError);
 
                     throw new PrincipalOperationException(
-                                    String.Format(CultureInfo.CurrentCulture, StringResources.UnableToRetrieveTokenInfo, lastError));
+                                    String.Format(CultureInfo.CurrentCulture, SR.UnableToRetrieveTokenInfo, lastError));
                 }
 
                 // Retrieve the user's SID from the user info
@@ -472,7 +463,7 @@ namespace System.DirectoryServices.AccountManagement
                                       "GetCurrentUserSid: CopySid failed, errorcode=" + lastError);
 
                     throw new PrincipalOperationException(
-                                    String.Format(CultureInfo.CurrentCulture, StringResources.UnableToRetrieveTokenInfo, lastError));
+                                    String.Format(CultureInfo.CurrentCulture, SR.UnableToRetrieveTokenInfo, lastError));
                 }
 
                 return pCopyOfUserSid;
@@ -487,7 +478,6 @@ namespace System.DirectoryServices.AccountManagement
             }
         }
 
-        [System.Security.SecuritySafeCritical]
 
         internal static IntPtr GetMachineDomainSid()
         {
@@ -512,7 +502,7 @@ namespace System.DirectoryServices.AccountManagement
                     GlobalDebug.WriteLineIf(GlobalDebug.Error, "Utils", "GetMachineDomainSid: LsaOpenPolicy failed, gle=" + SafeNativeMethods.LsaNtStatusToWinError(err));
 
                     throw new PrincipalOperationException(String.Format(CultureInfo.CurrentCulture,
-                                                               StringResources.UnableToRetrievePolicy,
+                                                               SR.UnableToRetrievePolicy,
                                                                SafeNativeMethods.LsaNtStatusToWinError(err)));
                 }
 
@@ -527,7 +517,7 @@ namespace System.DirectoryServices.AccountManagement
                     GlobalDebug.WriteLineIf(GlobalDebug.Error, "Utils", "GetMachineDomainSid: LsaQueryInformationPolicy failed, gle=" + SafeNativeMethods.LsaNtStatusToWinError(err));
 
                     throw new PrincipalOperationException(String.Format(CultureInfo.CurrentCulture,
-                                                               StringResources.UnableToRetrievePolicy,
+                                                               SR.UnableToRetrievePolicy,
                                                                SafeNativeMethods.LsaNtStatusToWinError(err)));
                 }
 
@@ -549,7 +539,7 @@ namespace System.DirectoryServices.AccountManagement
                                       "GetMachineDomainSid: CopySid failed, errorcode=" + lastError);
 
                     throw new PrincipalOperationException(
-                                    String.Format(CultureInfo.CurrentCulture, StringResources.UnableToRetrievePolicy, lastError));
+                                    String.Format(CultureInfo.CurrentCulture, SR.UnableToRetrievePolicy, lastError));
                 }
 
                 return pCopyOfSid;
@@ -568,11 +558,6 @@ namespace System.DirectoryServices.AccountManagement
         }
 
         // Returns name in the form "domain\user"
-        [System.Security.Permissions.SecurityPermission(
-                                        System.Security.Permissions.SecurityAction.Assert,
-                                        Flags = System.Security.Permissions.SecurityPermissionFlag.ControlPrincipal)]
-        [System.Security.SecuritySafeCritical]
-
         internal static string GetNT4UserName()
         {
             using (WindowsIdentity currentIdentity = System.Security.Principal.WindowsIdentity.GetCurrent())
@@ -582,11 +567,6 @@ namespace System.DirectoryServices.AccountManagement
                 return s;
             }
         }
-
-        [System.Security.Permissions.EnvironmentPermission(
-                                        System.Security.Permissions.SecurityAction.Assert,
-                                        Unrestricted = true)]
-        [System.Security.SecuritySafeCritical]
 
         internal static string GetComputerFlatName()
         {
@@ -600,7 +580,6 @@ namespace System.DirectoryServices.AccountManagement
         //
         // Interop support
         //
-        [System.Security.SecuritySafeCritical]
 
         internal static UnsafeNativeMethods.DomainControllerInfo GetDcName(string computerName, string domainName, string siteName, int flags)
         {
@@ -616,7 +595,7 @@ namespace System.DirectoryServices.AccountManagement
                     throw new PrincipalOperationException(
                                     String.Format(
                                             CultureInfo.CurrentCulture,
-                                            StringResources.UnableToRetrieveDomainInfo,
+                                            SR.UnableToRetrieveDomainInfo,
                                             err));
                 }
 
@@ -632,7 +611,6 @@ namespace System.DirectoryServices.AccountManagement
             }
         }
 
-        [System.Security.SecurityCritical]
         internal static int LookupSid(string serverName, NetCred credentials, byte[] sid, out string name, out string domainName, out int accountUsage)
         {
             IntPtr pSid = IntPtr.Zero;
@@ -702,7 +680,6 @@ namespace System.DirectoryServices.AccountManagement
             }
         }
 
-        [System.Security.SecuritySafeCritical]
 
         static internal Principal ConstructFakePrincipalFromSID(
                                                             byte[] sid,
@@ -774,7 +751,6 @@ namespace System.DirectoryServices.AccountManagement
         //
         // Impersonation
         //
-        [System.Security.SecurityCritical]
         internal static bool BeginImpersonation(NetCred credential, out IntPtr hUserToken)
         {
             GlobalDebug.WriteLineIf(GlobalDebug.Info, "Utils", "Entering BeginImpersonation");
@@ -819,7 +795,7 @@ namespace System.DirectoryServices.AccountManagement
 
                 throw new PrincipalOperationException(
                     String.Format(CultureInfo.CurrentCulture,
-                                  StringResources.UnableToImpersonateCredentials,
+                                  SR.UnableToImpersonateCredentials,
                                   lastError));
             }
 
@@ -834,7 +810,7 @@ namespace System.DirectoryServices.AccountManagement
 
                 throw new PrincipalOperationException(
                     String.Format(CultureInfo.CurrentCulture,
-                                  StringResources.UnableToImpersonateCredentials,
+                                  SR.UnableToImpersonateCredentials,
                                   lastError));
             }
 
@@ -842,7 +818,6 @@ namespace System.DirectoryServices.AccountManagement
             return true;
         }
 
-        [System.Security.SecurityCritical]
         internal static void EndImpersonation(IntPtr hUserToken)
         {
             GlobalDebug.WriteLineIf(GlobalDebug.Info, "Utils", "Entering EndImpersonation");
@@ -851,7 +826,6 @@ namespace System.DirectoryServices.AccountManagement
             UnsafeNativeMethods.CloseHandle(hUserToken);
         }
 
-        [System.Security.SecuritySafeCritical]
         internal static bool IsMachineDC(String computerName)
         {
             IntPtr dsRoleInfoPtr = IntPtr.Zero;
@@ -870,7 +844,7 @@ namespace System.DirectoryServices.AccountManagement
                     throw new PrincipalOperationException(
                                     String.Format(
                                             CultureInfo.CurrentCulture,
-                                            StringResources.UnableToRetrieveDomainInfo,
+                                            SR.UnableToRetrieveDomainInfo,
                                             err));
                 }
 

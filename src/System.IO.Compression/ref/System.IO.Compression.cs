@@ -88,10 +88,13 @@ namespace System.IO.Compression
         internal ZipArchiveEntry() { }
         public System.IO.Compression.ZipArchive Archive { get { throw null; } }
         public long CompressedLength { get { throw null; } }
+        public int ExternalAttributes { get { throw null; } set { } }
         public string FullName { get { throw null; } }
         public System.DateTimeOffset LastWriteTime { get { throw null; } set { } }
         public long Length { get { throw null; } }
         public string Name { get { throw null; } }
+        [CLSCompliant(false)]
+        public uint Crc32 { get { throw null; } }
         public void Delete() { }
         public System.IO.Stream Open() { throw null; }
         public override string ToString() { throw null; }

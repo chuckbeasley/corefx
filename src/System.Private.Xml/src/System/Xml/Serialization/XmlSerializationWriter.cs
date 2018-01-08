@@ -17,6 +17,8 @@ namespace System.Xml.Serialization
     using System.Threading;
     using System.Runtime.Versioning;
     using System.Collections.Generic;
+    using System.Xml.Serialization;
+    using System.Xml;
 
     ///<internalonly/>
     public abstract class XmlSerializationWriter : XmlSerializationGeneratedCode
@@ -35,12 +37,14 @@ namespace System.Xml.Serialization
         private bool _soap12;
         private bool _escapeName = true;
 
+#if FEATURE_SERIALIZATION_UAPAOT
         // this method must be called before any generated serialization methods are called
         internal void Init(XmlWriter w, XmlSerializerNamespaces namespaces, string encodingStyle, string idBase)
         {
             _w = w;
             _namespaces = namespaces;
         }
+#endif
 
         // this method must be called before any generated serialization methods are called
         internal void Init(XmlWriter w, XmlSerializerNamespaces namespaces, string encodingStyle, string idBase, TempAssembly tempAssembly)
@@ -220,12 +224,12 @@ namespace System.Xml.Serialization
                         typeName = "guid";
                         typeNs = UrtTypes.Namespace;
                     }
-                    else if (type == typeof (TimeSpan))
+                    else if (type == typeof(TimeSpan))
                     {
                         typeName = "TimeSpan";
                         typeNs = UrtTypes.Namespace;
                     }
-                    else if (type == typeof (XmlNode[]))
+                    else if (type == typeof(XmlNode[]))
                     {
                         typeName = Soap.UrType;
                     }
@@ -616,8 +620,8 @@ namespace System.Xml.Serialization
             if (o != null && _objectsInUse != null)
             {
 #if DEBUG
-                    // use exception in the place of Debug.Assert to avoid throwing asserts from a server process such as aspnet_ewp.exe
-                    if (!_objectsInUse.ContainsKey(o)) throw new InvalidOperationException(SR.Format(SR.XmlInternalErrorDetails, "missing stack object of type " + o.GetType().FullName));
+                // use exception in the place of Debug.Assert to avoid throwing asserts from a server process such as aspnet_ewp.exe
+                if (!_objectsInUse.ContainsKey(o)) throw new InvalidOperationException(SR.Format(SR.XmlInternalErrorDetails, "missing stack object of type " + o.GetType().FullName));
 #endif
 
                 _objectsInUse.Remove(o);
@@ -1143,16 +1147,6 @@ namespace System.Xml.Serialization
             _typeEntries[type] = entry;
         }
 
-        internal bool ExistTypeEntry(Type type)
-        {
-            if (_typeEntries == null)
-            {
-                _typeEntries = new Hashtable();
-            }
-
-            return _typeEntries.ContainsKey(type);
-        }
-
         private void WriteArray(string name, string ns, object o, Type type)
         {
             Type elementType = TypeScope.GetArrayElementType(type, null);
@@ -1250,8 +1244,8 @@ namespace System.Xml.Serialization
             else
             {
 #if DEBUG
-                    // use exception in the place of Debug.Assert to avoid throwing asserts from a server process such as aspnet_ewp.exe
-                    if (!typeof(IEnumerable).IsAssignableFrom(type)) throw new InvalidOperationException(SR.Format(SR.XmlInternalErrorDetails, "not array like type " + type.FullName));
+                // use exception in the place of Debug.Assert to avoid throwing asserts from a server process such as aspnet_ewp.exe
+                if (!typeof(IEnumerable).IsAssignableFrom(type)) throw new InvalidOperationException(SR.Format(SR.XmlInternalErrorDetails, "not array like type " + type.FullName));
 #endif
 
                 int arrayLength = typeof(ICollection).IsAssignableFrom(type) ? ((ICollection)o).Count : -1;
@@ -1404,8 +1398,8 @@ namespace System.Xml.Serialization
                     string ns = (string)entry.Value;
                     if (_namespaces != null)
                     {
-                        string oldNs = _namespaces.Namespaces[prefix] as string;
-                        if (oldNs != null && oldNs != ns)
+                        string oldNs;
+                        if (_namespaces.Namespaces.TryGetValue(prefix, out oldNs) && oldNs != null && oldNs != ns)
                         {
                             throw new InvalidOperationException(SR.Format(SR.XmlDuplicateNs, prefix, ns));
                         }
@@ -1444,6 +1438,762 @@ namespace System.Xml.Serialization
     ///<internalonly/>
     public delegate void XmlSerializationWriteCallback(object o);
 
+
+    internal static class DynamicAssemblies
+    {
+        private static ArrayList s_assembliesInConfig = new ArrayList();
+        private static volatile Hashtable s_nameToAssemblyMap = new Hashtable();
+        private static volatile Hashtable s_assemblyToNameMap = new Hashtable();
+        private static Hashtable s_tableIsTypeDynamic = Hashtable.Synchronized(new Hashtable());
+
+        // SxS: This method does not take any resource name and does not expose any resources to the caller.
+        // It's OK to suppress the SxS warning.
+        internal static bool IsTypeDynamic(Type type)
+        {
+            object oIsTypeDynamic = s_tableIsTypeDynamic[type];
+            if (oIsTypeDynamic == null)
+            {
+                Assembly assembly = type.Assembly;
+                bool isTypeDynamic = assembly.IsDynamic /*|| string.IsNullOrEmpty(assembly.Location)*/;
+                if (!isTypeDynamic)
+                {
+                    if (type.IsArray)
+                    {
+                        isTypeDynamic = IsTypeDynamic(type.GetElementType());
+                    }
+                    else if (type.IsGenericType)
+                    {
+                        Type[] parameterTypes = type.GetGenericArguments();
+                        if (parameterTypes != null)
+                        {
+                            for (int i = 0; i < parameterTypes.Length; i++)
+                            {
+                                Type parameterType = parameterTypes[i];
+                                if (!(parameterType == null || parameterType.IsGenericParameter))
+                                {
+                                    isTypeDynamic = IsTypeDynamic(parameterType);
+                                    if (isTypeDynamic)
+                                        break;
+                                }
+                            }
+                        }
+                    }
+                }
+                s_tableIsTypeDynamic[type] = oIsTypeDynamic = isTypeDynamic;
+            }
+            return (bool)oIsTypeDynamic;
+        }
+
+#if !FEATURE_SERIALIZATION_UAPAOT
+        internal static bool IsTypeDynamic(Type[] arguments)
+        {
+            foreach (Type t in arguments)
+            {
+                if (DynamicAssemblies.IsTypeDynamic(t))
+                {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        internal static void Add(Assembly a)
+        {
+            lock (s_nameToAssemblyMap)
+            {
+                if (s_assemblyToNameMap[a] != null)
+                {
+                    //already added
+                    return;
+                }
+                Assembly oldAssembly = s_nameToAssemblyMap[a.FullName] as Assembly;
+                string key = null;
+                if (oldAssembly == null)
+                {
+                    key = a.FullName;
+                }
+                else if (oldAssembly != a)
+                {
+                    //more than one assembly with same name
+                    key = a.FullName + ", " + s_nameToAssemblyMap.Count;
+                }
+                if (key != null)
+                {
+                    s_nameToAssemblyMap.Add(key, a);
+                    s_assemblyToNameMap.Add(a, key);
+                }
+            }
+        }
+#endif
+
+        internal static Assembly Get(string fullName)
+        {
+            return s_nameToAssemblyMap != null ? (Assembly)s_nameToAssemblyMap[fullName] : null;
+        }
+
+#if !FEATURE_SERIALIZATION_UAPAOT
+        internal static string GetName(Assembly a)
+        {
+            return s_assemblyToNameMap != null ? (string) s_assemblyToNameMap[a] : null;
+        }
+#endif
+    }
+
+#if !FEATURE_SERIALIZATION_UAPAOT
+    internal class ReflectionAwareCodeGen
+    {
+        private const string hexDigits = "0123456789ABCDEF";
+        private const string arrayMemberKey = "0";
+        // reflectionVariables holds mapping between a reflection entity
+        // referenced in the generated code (such as TypeInfo,
+        // FieldInfo) and the variable which represent the entity (and
+        // initialized before).
+        // The types of reflection entity and corresponding key is
+        // given below.
+        // ----------------------------------------------------------------------------------
+        // Entity           Key
+        // ----------------------------------------------------------------------------------
+        // Assembly         assembly.FullName
+        // Type             CodeIdentifier.EscapedKeywords(type.FullName)
+        // Field            fieldName+":"+CodeIdentifier.EscapedKeywords(containingType.FullName>)
+        // Property         propertyName+":"+CodeIdentifier.EscapedKeywords(containingType.FullName)
+        // ArrayAccessor    "0:"+CodeIdentifier.EscapedKeywords(typeof(Array).FullName)
+        // MyCollectionAccessor     "0:"+CodeIdentifier.EscapedKeywords(typeof(MyCollection).FullName)
+        // ----------------------------------------------------------------------------------
+        private Hashtable _reflectionVariables = null;
+        private int _nextReflectionVariableNumber = 0;
+        private IndentedWriter _writer;
+        internal ReflectionAwareCodeGen(IndentedWriter writer)
+        {
+            _writer = writer;
+        }
+
+        internal void WriteReflectionInit(TypeScope scope)
+        {
+            foreach (Type type in scope.Types)
+            {
+                TypeDesc typeDesc = scope.GetTypeDesc(type);
+                if (typeDesc.UseReflection)
+                    WriteTypeInfo(scope, typeDesc, type);
+            }
+        }
+
+        private string WriteTypeInfo(TypeScope scope, TypeDesc typeDesc, Type type)
+        {
+            InitTheFirstTime();
+            string typeFullName = typeDesc.CSharpName;
+            string typeVariable = (string)_reflectionVariables[typeFullName];
+            if (typeVariable != null)
+                return typeVariable;
+
+            if (type.IsArray)
+            {
+                typeVariable = GenerateVariableName("array", typeDesc.CSharpName);
+                TypeDesc elementTypeDesc = typeDesc.ArrayElementTypeDesc;
+                if (elementTypeDesc.UseReflection)
+                {
+                    string elementTypeVariable = WriteTypeInfo(scope, elementTypeDesc, scope.GetTypeFromTypeDesc(elementTypeDesc));
+                    _writer.WriteLine("static " + typeof(Type).FullName + " " + typeVariable + " = " + elementTypeVariable + ".MakeArrayType();");
+                }
+                else
+                {
+                    string assemblyVariable = WriteAssemblyInfo(type);
+                    _writer.Write("static " + typeof(Type).FullName + " " + typeVariable + " = " + assemblyVariable + ".GetType(");
+                    WriteQuotedCSharpString(type.FullName);
+                    _writer.WriteLine(");");
+                }
+            }
+            else
+            {
+                typeVariable = GenerateVariableName(nameof(type), typeDesc.CSharpName);
+
+                Type parameterType = Nullable.GetUnderlyingType(type);
+                if (parameterType != null)
+                {
+                    string parameterTypeVariable = WriteTypeInfo(scope, scope.GetTypeDesc(parameterType), parameterType);
+                    _writer.WriteLine("static " + typeof(Type).FullName + " " + typeVariable + " = typeof(System.Nullable<>).MakeGenericType(new " + typeof(Type).FullName + "[] {" + parameterTypeVariable + "});");
+                }
+                else
+                {
+                    string assemblyVariable = WriteAssemblyInfo(type);
+                    _writer.Write("static " + typeof(Type).FullName + " " + typeVariable + " = " + assemblyVariable + ".GetType(");
+                    WriteQuotedCSharpString(type.FullName);
+                    _writer.WriteLine(");");
+                }
+            }
+
+            _reflectionVariables.Add(typeFullName, typeVariable);
+
+            TypeMapping mapping = scope.GetTypeMappingFromTypeDesc(typeDesc);
+            if (mapping != null)
+                WriteMappingInfo(mapping, typeVariable, type);
+            if (typeDesc.IsCollection || typeDesc.IsEnumerable)
+            {// Arrays use the generic item_Array
+                TypeDesc elementTypeDesc = typeDesc.ArrayElementTypeDesc;
+                if (elementTypeDesc.UseReflection)
+                    WriteTypeInfo(scope, elementTypeDesc, scope.GetTypeFromTypeDesc(elementTypeDesc));
+                WriteCollectionInfo(typeVariable, typeDesc, type);
+            }
+            return typeVariable;
+        }
+
+        private void InitTheFirstTime()
+        {
+            if (_reflectionVariables == null)
+            {
+                _reflectionVariables = new Hashtable();
+                _writer.Write(String.Format(CultureInfo.InvariantCulture, s_helperClassesForUseReflection,
+                    "object", "string", typeof(Type).FullName,
+                    typeof(FieldInfo).FullName, typeof(PropertyInfo).FullName,
+                    typeof(MemberInfo).FullName /*, typeof(MemberTypes).FullName*/));
+
+                WriteDefaultIndexerInit(typeof(IList), typeof(Array).FullName, false, false);
+            }
+        }
+
+        private void WriteMappingInfo(TypeMapping mapping, string typeVariable, Type type)
+        {
+            string typeFullName = mapping.TypeDesc.CSharpName;
+            if (mapping is StructMapping)
+            {
+                StructMapping structMapping = mapping as StructMapping;
+                for (int i = 0; i < structMapping.Members.Length; i++)
+                {
+                    MemberMapping member = structMapping.Members[i];
+                    string memberVariable = WriteMemberInfo(type, typeFullName, typeVariable, member.Name);
+                    if (member.CheckShouldPersist)
+                    {
+                        string memberName = "ShouldSerialize" + member.Name;
+                        memberVariable = WriteMethodInfo(typeFullName, typeVariable, memberName, false);
+                    }
+                    if (member.CheckSpecified != SpecifiedAccessor.None)
+                    {
+                        string memberName = member.Name + "Specified";
+                        memberVariable = WriteMemberInfo(type, typeFullName, typeVariable, memberName);
+                    }
+                    if (member.ChoiceIdentifier != null)
+                    {
+                        string memberName = member.ChoiceIdentifier.MemberName;
+                        memberVariable = WriteMemberInfo(type, typeFullName, typeVariable, memberName);
+                    }
+                }
+            }
+            else if (mapping is EnumMapping)
+            {
+                FieldInfo[] enumFields = type.GetFields();
+                for (int i = 0; i < enumFields.Length; i++)
+                {
+                    WriteMemberInfo(type, typeFullName, typeVariable, enumFields[i].Name);
+                }
+            }
+        }
+        private void WriteCollectionInfo(string typeVariable, TypeDesc typeDesc, Type type)
+        {
+            string typeFullName = CodeIdentifier.GetCSharpName(type);
+            string elementTypeFullName = typeDesc.ArrayElementTypeDesc.CSharpName;
+            bool elementUseReflection = typeDesc.ArrayElementTypeDesc.UseReflection;
+            if (typeDesc.IsCollection)
+            {
+                WriteDefaultIndexerInit(type, typeFullName, typeDesc.UseReflection, elementUseReflection);
+            }
+            else if (typeDesc.IsEnumerable)
+            {
+                if (typeDesc.IsGenericInterface)
+                {
+                    WriteMethodInfo(typeFullName, typeVariable, "System.Collections.Generic.IEnumerable*", true);
+                }
+                else if (!typeDesc.IsPrivateImplementation)
+                {
+                    WriteMethodInfo(typeFullName, typeVariable, "GetEnumerator", true);
+                }
+            }
+            WriteMethodInfo(typeFullName, typeVariable, "Add", false, GetStringForTypeof(elementTypeFullName, elementUseReflection));
+        }
+
+        private string WriteAssemblyInfo(Type type)
+        {
+            string assemblyFullName = type.Assembly.FullName;
+            string assemblyVariable = (string)_reflectionVariables[assemblyFullName];
+            if (assemblyVariable == null)
+            {
+                int iComma = assemblyFullName.IndexOf(',');
+                string assemblyName = (iComma > -1) ? assemblyFullName.Substring(0, iComma) : assemblyFullName;
+                assemblyVariable = GenerateVariableName("assembly", assemblyName);
+                //writer.WriteLine("static "+ typeof(Assembly).FullName+" "+assemblyVariable+" = "+typeof(Assembly).FullName+".Load(");
+                _writer.Write("static " + typeof(Assembly).FullName + " " + assemblyVariable + " = " + "ResolveDynamicAssembly(");
+                WriteQuotedCSharpString(DynamicAssemblies.GetName(type.Assembly)/*assemblyFullName*/);
+                _writer.WriteLine(");");
+                _reflectionVariables.Add(assemblyFullName, assemblyVariable);
+            }
+            return assemblyVariable;
+        }
+
+        private string WriteMemberInfo(Type type, string escapedName, string typeVariable, string memberName)
+        {
+            MemberInfo[] memberInfos = type.GetMember(memberName);
+            for (int i = 0; i < memberInfos.Length; i++)
+            {
+                if (memberInfos[i] is PropertyInfo)
+                {
+                    string propVariable = GenerateVariableName("prop", memberName);
+                    _writer.Write("static XSPropInfo " + propVariable + " = new XSPropInfo(" + typeVariable + ", ");
+                    WriteQuotedCSharpString(memberName);
+                    _writer.WriteLine(");");
+                    _reflectionVariables.Add(memberName + ":" + escapedName, propVariable);
+                    return propVariable;
+                }
+                else if (memberInfos[i] is FieldInfo)
+                {
+                    string fieldVariable = GenerateVariableName("field", memberName);
+                    _writer.Write("static XSFieldInfo " + fieldVariable + " = new XSFieldInfo(" + typeVariable + ", ");
+                    WriteQuotedCSharpString(memberName);
+                    _writer.WriteLine(");");
+                    _reflectionVariables.Add(memberName + ":" + escapedName, fieldVariable);
+                    return fieldVariable;
+                }
+            }
+            throw new InvalidOperationException(SR.Format(SR.XmlSerializerUnsupportedType, memberInfos[0].ToString()));
+        }
+
+        private string WriteMethodInfo(string escapedName, string typeVariable, string memberName, bool isNonPublic, params string[] paramTypes)
+        {
+            string methodVariable = GenerateVariableName("method", memberName);
+            _writer.Write("static " + typeof(MethodInfo).FullName + " " + methodVariable + " = " + typeVariable + ".GetMethod(");
+            WriteQuotedCSharpString(memberName);
+            _writer.Write(", ");
+
+            string bindingFlags = typeof(BindingFlags).FullName;
+            _writer.Write(bindingFlags);
+            _writer.Write(".Public | ");
+            _writer.Write(bindingFlags);
+            _writer.Write(".Instance | ");
+            _writer.Write(bindingFlags);
+            _writer.Write(".Static");
+
+            if (isNonPublic)
+            {
+                _writer.Write(" | ");
+                _writer.Write(bindingFlags);
+                _writer.Write(".NonPublic");
+            }
+            _writer.Write(", null, ");
+            _writer.Write("new " + typeof(Type).FullName + "[] { ");
+            for (int i = 0; i < paramTypes.Length; i++)
+            {
+                _writer.Write(paramTypes[i]);
+                if (i < (paramTypes.Length - 1))
+                    _writer.Write(", ");
+            }
+            _writer.WriteLine("}, null);");
+            _reflectionVariables.Add(memberName + ":" + escapedName, methodVariable);
+            return methodVariable;
+        }
+
+        private string WriteDefaultIndexerInit(Type type, string escapedName, bool collectionUseReflection, bool elementUseReflection)
+        {
+            string itemVariable = GenerateVariableName("item", escapedName);
+            PropertyInfo defaultIndexer = TypeScope.GetDefaultIndexer(type, null);
+            _writer.Write("static XSArrayInfo ");
+            _writer.Write(itemVariable);
+            _writer.Write("= new XSArrayInfo(");
+            _writer.Write(GetStringForTypeof(CodeIdentifier.GetCSharpName(type), collectionUseReflection));
+            _writer.Write(".GetProperty(");
+            WriteQuotedCSharpString(defaultIndexer.Name);
+            _writer.Write(",");
+            //defaultIndexer.PropertyType is same as TypeDesc.ElementTypeDesc
+            _writer.Write(GetStringForTypeof(CodeIdentifier.GetCSharpName(defaultIndexer.PropertyType), elementUseReflection));
+            _writer.Write(",new ");
+            _writer.Write(typeof(Type[]).FullName);
+            _writer.WriteLine("{typeof(int)}));");
+            _reflectionVariables.Add(arrayMemberKey + ":" + escapedName, itemVariable);
+            return itemVariable;
+        }
+
+        private string GenerateVariableName(string prefix, string fullName)
+        {
+            ++_nextReflectionVariableNumber;
+            return prefix + _nextReflectionVariableNumber + "_" +
+                CodeIdentifier.MakeValidInternal(fullName.Replace('.', '_'));
+        }
+        internal string GetReflectionVariable(string typeFullName, string memberName)
+        {
+            string key;
+            if (memberName == null)
+                key = typeFullName;
+            else
+                key = memberName + ":" + typeFullName;
+            return (string)_reflectionVariables[key];
+        }
+
+
+        internal string GetStringForMethodInvoke(string obj, string escapedTypeName, string methodName, bool useReflection, params string[] args)
+        {
+            StringBuilder sb = new StringBuilder();
+            if (useReflection)
+            {
+                sb.Append(GetReflectionVariable(escapedTypeName, methodName));
+                sb.Append(".Invoke(");
+                sb.Append(obj);
+                sb.Append(", new object[] {");
+            }
+            else
+            {
+                sb.Append(obj);
+                sb.Append(".@");
+                sb.Append(methodName);
+                sb.Append("(");
+            }
+            for (int i = 0; i < args.Length; i++)
+            {
+                if (i != 0)
+                    sb.Append(", ");
+                sb.Append(args[i]);
+            }
+            if (useReflection)
+                sb.Append("})");
+            else
+                sb.Append(")");
+            return sb.ToString();
+        }
+
+        internal string GetStringForEnumCompare(EnumMapping mapping, string memberName, bool useReflection)
+        {
+            if (!useReflection)
+            {
+                CodeIdentifier.CheckValidIdentifier(memberName);
+                return mapping.TypeDesc.CSharpName + ".@" + memberName;
+            }
+            string memberAccess = GetStringForEnumMember(mapping.TypeDesc.CSharpName, memberName, useReflection);
+            return GetStringForEnumLongValue(memberAccess, useReflection);
+        }
+        internal string GetStringForEnumLongValue(string variable, bool useReflection)
+        {
+            if (useReflection)
+                return typeof(Convert).FullName + ".ToInt64(" + variable + ")";
+            return "((" + typeof(long).FullName + ")" + variable + ")";
+        }
+
+        internal string GetStringForTypeof(string typeFullName, bool useReflection)
+        {
+            if (useReflection)
+            {
+                return GetReflectionVariable(typeFullName, null);
+            }
+            else
+            {
+                return "typeof(" + typeFullName + ")";
+            }
+        }
+        internal string GetStringForMember(string obj, string memberName, TypeDesc typeDesc)
+        {
+            if (!typeDesc.UseReflection)
+                return obj + ".@" + memberName;
+
+            TypeDesc saveTypeDesc = typeDesc;
+            while (typeDesc != null)
+            {
+                string typeFullName = typeDesc.CSharpName;
+                string memberInfoName = GetReflectionVariable(typeFullName, memberName);
+                if (memberInfoName != null)
+                    return memberInfoName + "[" + obj + "]";
+                // member may be part of the basetype 
+                typeDesc = typeDesc.BaseTypeDesc;
+                if (typeDesc != null && !typeDesc.UseReflection)
+                    return "((" + typeDesc.CSharpName + ")" + obj + ").@" + memberName;
+            }
+            //throw GetReflectionVariableException(saveTypeDesc.CSharpName,memberName); 
+            // NOTE, sowmys:Must never happen. If it does let the code
+            // gen continue to help debugging what's gone wrong.
+            // Eventually the compilation will fail.
+            return "[" + obj + "]";
+        }
+        /*
+        Exception GetReflectionVariableException(string typeFullName, string memberName){
+            string key;
+            if(memberName == null)
+                key = typeFullName;
+            else
+                key = memberName+":"+typeFullName;
+            System.Text.StringBuilder sb = new System.Text.StringBuilder();
+            foreach(object varAvail in reflectionVariables.Keys){
+                sb.Append(varAvail.ToString());
+                sb.Append("\n");
+            }
+            return new Exception("No reflection variable for " + key + "\nAvailable keys\n"+sb.ToString());
+        }*/
+
+        internal string GetStringForEnumMember(string typeFullName, string memberName, bool useReflection)
+        {
+            if (!useReflection)
+                return typeFullName + ".@" + memberName;
+
+            string memberInfoName = GetReflectionVariable(typeFullName, memberName);
+            return memberInfoName + "[null]";
+        }
+        internal string GetStringForArrayMember(string arrayName, string subscript, TypeDesc arrayTypeDesc)
+        {
+            if (!arrayTypeDesc.UseReflection)
+            {
+                return arrayName + "[" + subscript + "]";
+            }
+            string typeFullName = arrayTypeDesc.IsCollection ? arrayTypeDesc.CSharpName : typeof(Array).FullName;
+            string arrayInfo = GetReflectionVariable(typeFullName, arrayMemberKey);
+            return arrayInfo + "[" + arrayName + ", " + subscript + "]";
+        }
+        internal string GetStringForMethod(string obj, string typeFullName, string memberName, bool useReflection)
+        {
+            if (!useReflection)
+                return obj + "." + memberName + "(";
+
+            string memberInfoName = GetReflectionVariable(typeFullName, memberName);
+            return memberInfoName + ".Invoke(" + obj + ", new object[]{";
+        }
+        internal string GetStringForCreateInstance(string escapedTypeName, bool useReflection, bool ctorInaccessible, bool cast)
+        {
+            return GetStringForCreateInstance(escapedTypeName, useReflection, ctorInaccessible, cast, string.Empty);
+        }
+
+        internal string GetStringForCreateInstance(string escapedTypeName, bool useReflection, bool ctorInaccessible, bool cast, string arg)
+        {
+            if (!useReflection && !ctorInaccessible)
+                return "new " + escapedTypeName + "(" + arg + ")";
+            return GetStringForCreateInstance(GetStringForTypeof(escapedTypeName, useReflection), cast && !useReflection ? escapedTypeName : null, ctorInaccessible, arg);
+        }
+
+        internal string GetStringForCreateInstance(string type, string cast, bool nonPublic, string arg)
+        {
+            StringBuilder createInstance = new StringBuilder();
+            if (cast != null && cast.Length > 0)
+            {
+                createInstance.Append("(");
+                createInstance.Append(cast);
+                createInstance.Append(")");
+            }
+            createInstance.Append(typeof(Activator).FullName);
+            createInstance.Append(".CreateInstance(");
+            createInstance.Append(type);
+            createInstance.Append(", ");
+            string bindingFlags = typeof(BindingFlags).FullName;
+            createInstance.Append(bindingFlags);
+            createInstance.Append(".Instance | ");
+            createInstance.Append(bindingFlags);
+            createInstance.Append(".Public | ");
+            createInstance.Append(bindingFlags);
+            createInstance.Append(".CreateInstance");
+
+            if (nonPublic)
+            {
+                createInstance.Append(" | ");
+                createInstance.Append(bindingFlags);
+                createInstance.Append(".NonPublic");
+            }
+            if (arg == null || arg.Length == 0)
+            {
+                createInstance.Append(", null, new object[0], null)");
+            }
+            else
+            {
+                createInstance.Append(", null, new object[] { ");
+                createInstance.Append(arg);
+                createInstance.Append(" }, null)");
+            }
+            return createInstance.ToString();
+        }
+
+        internal void WriteLocalDecl(string typeFullName, string variableName, string initValue, bool useReflection)
+        {
+            if (useReflection)
+                typeFullName = "object";
+            _writer.Write(typeFullName);
+            _writer.Write(" ");
+            _writer.Write(variableName);
+            if (initValue != null)
+            {
+                _writer.Write(" = ");
+                if (!useReflection && initValue != "null")
+                {
+                    _writer.Write("(" + typeFullName + ")");
+                }
+                _writer.Write(initValue);
+            }
+            _writer.WriteLine(";");
+        }
+
+        internal void WriteCreateInstance(string escapedName, string source, bool useReflection, bool ctorInaccessible)
+        {
+            _writer.Write(useReflection ? "object" : escapedName);
+            _writer.Write(" ");
+            _writer.Write(source);
+            _writer.Write(" = ");
+            _writer.Write(GetStringForCreateInstance(escapedName, useReflection, ctorInaccessible, !useReflection && ctorInaccessible));
+            _writer.WriteLine(";");
+        }
+        internal void WriteInstanceOf(string source, string escapedTypeName, bool useReflection)
+        {
+            if (!useReflection)
+            {
+                _writer.Write(source);
+                _writer.Write(" is ");
+                _writer.Write(escapedTypeName);
+                return;
+            }
+            _writer.Write(GetReflectionVariable(escapedTypeName, null));
+            _writer.Write(".IsAssignableFrom(");
+            _writer.Write(source);
+            _writer.Write(".GetType())");
+        }
+
+        internal void WriteArrayLocalDecl(string typeName, string variableName, string initValue, TypeDesc arrayTypeDesc)
+        {
+            if (arrayTypeDesc.UseReflection)
+            {
+                if (arrayTypeDesc.IsEnumerable)
+                    typeName = typeof(IEnumerable).FullName;
+                else if (arrayTypeDesc.IsCollection)
+                    typeName = typeof(ICollection).FullName;
+                else
+                    typeName = typeof(Array).FullName;
+            }
+            _writer.Write(typeName);
+            _writer.Write(" ");
+            _writer.Write(variableName);
+            if (initValue != null)
+            {
+                _writer.Write(" = ");
+                if (initValue != "null")
+                    _writer.Write("(" + typeName + ")");
+                _writer.Write(initValue);
+            }
+            _writer.WriteLine(";");
+        }
+        internal void WriteEnumCase(string fullTypeName, ConstantMapping c, bool useReflection)
+        {
+            _writer.Write("case ");
+            if (useReflection)
+            {
+                _writer.Write(c.Value.ToString(CultureInfo.InvariantCulture));
+            }
+            else
+            {
+                _writer.Write(fullTypeName);
+                _writer.Write(".@");
+                CodeIdentifier.CheckValidIdentifier(c.Name);
+                _writer.Write(c.Name);
+            }
+            _writer.Write(": ");
+        }
+        internal void WriteTypeCompare(string variable, string escapedTypeName, bool useReflection)
+        {
+            _writer.Write(variable);
+            _writer.Write(" == ");
+            _writer.Write(GetStringForTypeof(escapedTypeName, useReflection));
+        }
+        internal void WriteArrayTypeCompare(string variable, string escapedTypeName, string elementTypeName, bool useReflection)
+        {
+            if (!useReflection)
+            {
+                _writer.Write(variable);
+                _writer.Write(" == typeof(");
+                _writer.Write(escapedTypeName);
+                _writer.Write(")");
+                return;
+            }
+            _writer.Write(variable);
+            _writer.Write(".IsArray ");
+            _writer.Write(" && ");
+            WriteTypeCompare(variable + ".GetElementType()", elementTypeName, useReflection);
+        }
+
+        internal static void WriteQuotedCSharpString(IndentedWriter writer, string value)
+        {
+            if (value == null)
+            {
+                writer.Write("null");
+                return;
+            }
+            writer.Write("@\"");
+            foreach (char ch in value)
+            {
+                if (ch < 32)
+                {
+                    if (ch == '\r')
+                        writer.Write("\\r");
+                    else if (ch == '\n')
+                        writer.Write("\\n");
+                    else if (ch == '\t')
+                        writer.Write("\\t");
+                    else
+                    {
+                        byte b = (byte)ch;
+                        writer.Write("\\x");
+                        writer.Write(hexDigits[b >> 4]);
+                        writer.Write(hexDigits[b & 0xF]);
+                    }
+                }
+                else if (ch == '\"')
+                {
+                    writer.Write("\"\"");
+                }
+                else
+                {
+                    writer.Write(ch);
+                }
+            }
+            writer.Write("\"");
+        }
+
+        internal void WriteQuotedCSharpString(string value)
+        {
+            WriteQuotedCSharpString(_writer, value);
+        }
+
+        private static string s_helperClassesForUseReflection = @"
+    sealed class XSFieldInfo {{
+       {3} fieldInfo;
+        public XSFieldInfo({2} t, {1} memberName){{
+            fieldInfo = t.GetField(memberName);
+        }}
+        public {0} this[{0} o] {{
+            get {{
+                return fieldInfo.GetValue(o);
+            }}
+            set {{
+                fieldInfo.SetValue(o, value);
+            }}
+        }}
+
+    }}
+    sealed class XSPropInfo {{
+        {4} propInfo;
+        public XSPropInfo({2} t, {1} memberName){{
+            propInfo = t.GetProperty(memberName);
+        }}
+        public {0} this[{0} o] {{
+            get {{
+                return propInfo.GetValue(o, null);
+            }}
+            set {{
+                propInfo.SetValue(o, value, null);
+            }}
+        }}
+    }}
+    sealed class XSArrayInfo {{
+        {4} propInfo;
+        public XSArrayInfo({4} propInfo){{
+            this.propInfo = propInfo;
+        }}
+        public {0} this[{0} a, int i] {{
+            get {{
+                return propInfo.GetValue(a, new {0}[]{{i}});
+            }}
+            set {{
+                propInfo.SetValue(a, value, new {0}[]{{i}});
+            }}
+        }}
+    }}
+";
+    }
+    
     internal class XmlSerializationWriterCodeGen : XmlSerializationCodeGen
     {
         internal XmlSerializationWriterCodeGen(IndentedWriter writer, TypeScope[] scopes, string access, string className) : base(writer, scopes, access, className)
@@ -1456,7 +2206,7 @@ namespace System.Xml.Serialization
             Writer.Write(" class ");
             Writer.Write(ClassName);
             Writer.Write(" : ");
-            Writer.Write(typeof(XmlSerializationWriter).FullName);
+            Writer.Write(typeof(System.Xml.Serialization.XmlSerializationWriter).FullName);
             Writer.WriteLine(" {");
             Writer.Indent++;
 
@@ -1547,7 +2297,7 @@ namespace System.Xml.Serialization
                         Writer.Write(", ");
                         WriteQuotedCSharpString(typeMapping.Namespace);
                         Writer.Write(", new ");
-                        Writer.Write(typeof(XmlSerializationWriteCallback).FullName);
+                        Writer.Write(typeof(System.Xml.Serialization.XmlSerializationWriteCallback).FullName);
                         Writer.Write("(this.");
                         Writer.Write(methodName);
                         Writer.WriteLine("));");
@@ -1563,7 +2313,7 @@ namespace System.Xml.Serialization
             bool hasDefault = defaultValue != null && defaultValue != DBNull.Value;
             if (hasDefault)
             {
-                WriteCheckDefault(source, defaultValue, nullable);
+                WriteCheckDefault(mapping, source, defaultValue, nullable);
                 Writer.WriteLine(" {");
                 Writer.Indent++;
             }
@@ -1681,7 +2431,7 @@ namespace System.Xml.Serialization
                 }
                 else
                 {
-                    WriteCheckDefault(source, defaultValue, isNullable);
+                    WriteCheckDefault(mapping, source, defaultValue, isNullable);
                 }
                 Writer.WriteLine(" {");
                 Writer.Indent++;
@@ -1827,7 +2577,7 @@ namespace System.Xml.Serialization
                 if (xmlnsMember >= 0)
                 {
                     MemberMapping member = mapping.Members[xmlnsMember];
-                    string source = "((" + typeof(XmlSerializerNamespaces).FullName + ")p[" + xmlnsMember.ToString(CultureInfo.InvariantCulture) + "])";
+                    string source = "((" + typeof(System.Xml.Serialization.XmlSerializerNamespaces).FullName + ")p[" + xmlnsMember.ToString(CultureInfo.InvariantCulture) + "])";
 
                     Writer.Write("if (pLength > ");
                     Writer.Write(xmlnsMember.ToString(CultureInfo.InvariantCulture));
@@ -3387,7 +4137,7 @@ namespace System.Xml.Serialization
             Writer.WriteLine(");");
         }
 
-        private void WriteCheckDefault(string source, object value, bool isNullable)
+        private void WriteCheckDefault(TypeMapping mapping, string source, object value, bool isNullable)
         {
             Writer.Write("if (");
 
@@ -3407,7 +4157,8 @@ namespace System.Xml.Serialization
             {
                 Writer.Write(source);
                 Writer.Write(" != ");
-                WriteValue(value);
+                Type type = Type.GetType(mapping.TypeDesc.Type.FullName);
+                WriteValue(type != null ? Convert.ChangeType(value, type) : value);
             }
             Writer.Write(")");
         }
@@ -3468,7 +4219,16 @@ namespace System.Xml.Serialization
                 else if (type == typeof(Int32))
                     Writer.Write(((Int32)value).ToString(null, NumberFormatInfo.InvariantInfo));
                 else if (type == typeof(Double))
-                    Writer.Write(((Double)value).ToString("R", NumberFormatInfo.InvariantInfo));
+                {
+                    if (double.IsNaN((Double)value))
+                    {
+                        Writer.Write("double.NaN");
+                    }
+                    else
+                    {
+                        Writer.Write(((Double)value).ToString("R", NumberFormatInfo.InvariantInfo));
+                    }
+                }
                 else if (type == typeof(Boolean))
                     Writer.Write((bool)value ? "true" : "false");
                 else if ((type == typeof(Int16)) || (type == typeof(Int64)) || (type == typeof(UInt16)) || (type == typeof(UInt32)) || (type == typeof(UInt64)) || (type == typeof(Byte)) || (type == typeof(SByte)))
@@ -3482,8 +4242,15 @@ namespace System.Xml.Serialization
                 }
                 else if (type == typeof(Single))
                 {
-                    Writer.Write(((Single)value).ToString("R", NumberFormatInfo.InvariantInfo));
-                    Writer.Write("f");
+                    if (Single.IsNaN((Single)value))
+                    {
+                        Writer.Write("System.Single.NaN");
+                    }
+                    else
+                    {
+                        Writer.Write(((Single)value).ToString("R", NumberFormatInfo.InvariantInfo));
+                        Writer.Write("f");
+                    }
                 }
                 else if (type == typeof(Decimal))
                 {
@@ -3498,12 +4265,21 @@ namespace System.Xml.Serialization
                     Writer.Write(((DateTime)value).Ticks.ToString(CultureInfo.InvariantCulture));
                     Writer.Write(")");
                 }
+                else if (type == typeof(TimeSpan))
+                {
+                    Writer.Write(" new ");
+                    Writer.Write(type.FullName);
+                    Writer.Write("(");
+                    Writer.Write(((TimeSpan)value).Ticks.ToString(CultureInfo.InvariantCulture));
+                    Writer.Write(")");
+                }
                 else
                 {
                     if (type.IsEnum)
                     {
                         Writer.Write(((int)value).ToString(null, NumberFormatInfo.InvariantInfo));
                     }
+
                     else
                     {
                         throw new InvalidOperationException(SR.Format(SR.XmlUnsupportedDefaultType, type.FullName));
@@ -3625,752 +4401,5 @@ namespace System.Xml.Serialization
             return enumValue;
         }
     }
-
-    internal static class DynamicAssemblies
-    {
-        private static ArrayList s_assembliesInConfig = new ArrayList();
-        private static volatile Hashtable s_nameToAssemblyMap = new Hashtable();
-        private static volatile Hashtable s_assemblyToNameMap = new Hashtable();
-        private static Hashtable s_tableIsTypeDynamic = Hashtable.Synchronized(new Hashtable());
-
-        // SxS: This method does not take any resource name and does not expose any resources to the caller.
-        // It's OK to suppress the SxS warning.
-        internal static bool IsTypeDynamic(Type type)
-        {
-            object oIsTypeDynamic = s_tableIsTypeDynamic[type];
-            if (oIsTypeDynamic == null)
-            {
-                Assembly assembly = type.Assembly;
-                bool isTypeDynamic = assembly.IsDynamic /*|| string.IsNullOrEmpty(assembly.Location)*/;
-                if (!isTypeDynamic)
-                {
-                    if (type.IsArray)
-                    {
-                        isTypeDynamic = IsTypeDynamic(type.GetElementType());
-                    }
-                    else if (type.IsGenericType)
-                    {
-                        Type[] parameterTypes = type.GetGenericArguments();
-                        if (parameterTypes != null)
-                        {
-                            for (int i = 0; i < parameterTypes.Length; i++)
-                            {
-                                Type parameterType = parameterTypes[i];
-                                if (!(parameterType == null || parameterType.IsGenericParameter))
-                                {
-                                    isTypeDynamic = IsTypeDynamic(parameterType);
-                                    if (isTypeDynamic)
-                                        break;
-                                }
-                            }
-                        }
-                    }
-                }
-                s_tableIsTypeDynamic[type] = oIsTypeDynamic = isTypeDynamic;
-            }
-            return (bool)oIsTypeDynamic;
-        }
-
-
-        internal static bool IsTypeDynamic(Type[] arguments)
-        {
-            foreach (Type t in arguments)
-            {
-                if (DynamicAssemblies.IsTypeDynamic(t))
-                {
-                    return true;
-                }
-            }
-            return false;
-        }
-
-        internal static void Add(Assembly a)
-        {
-            lock (s_nameToAssemblyMap)
-            {
-                if (s_assemblyToNameMap[a] != null)
-                {
-                    //already added
-                    return;
-                }
-                Assembly oldAssembly = s_nameToAssemblyMap[a.FullName] as Assembly;
-                string key = null;
-                if (oldAssembly == null)
-                {
-                    key = a.FullName;
-                }
-                else if (oldAssembly != a)
-                {
-                    //more than one assembly with same name
-                    key = a.FullName + ", " + s_nameToAssemblyMap.Count;
-                }
-                if (key != null)
-                {
-                    s_nameToAssemblyMap.Add(key, a);
-                    s_assemblyToNameMap.Add(a, key);
-                }
-            }
-        }
-        internal static Assembly Get(string fullName)
-        {
-            return s_nameToAssemblyMap != null ? (Assembly)s_nameToAssemblyMap[fullName] : null;
-        }
-        internal static string GetName(Assembly a)
-        {
-            return s_assemblyToNameMap != null ? (string)s_assemblyToNameMap[a] : null;
-        }
-    }
-    internal class ReflectionAwareCodeGen
-    {
-        private const string hexDigits = "0123456789ABCDEF";
-        private const string arrayMemberKey = "0";
-        // reflectionVariables holds mapping between a reflection entity
-        // referenced in the generated code (such as TypeInfo,
-        // FieldInfo) and the variable which represent the entity (and
-        // initialized before).
-        // The types of reflection entity and corresponding key is
-        // given below.
-        // ----------------------------------------------------------------------------------
-        // Entity           Key
-        // ----------------------------------------------------------------------------------
-        // Assembly         assembly.FullName
-        // Type             CodeIdentifier.EscapedKeywords(type.FullName)
-        // Field            fieldName+":"+CodeIdentifier.EscapedKeywords(containingType.FullName>)
-        // Property         propertyName+":"+CodeIdentifier.EscapedKeywords(containingType.FullName)
-        // ArrayAccessor    "0:"+CodeIdentifier.EscapedKeywords(typeof(Array).FullName)
-        // MyCollectionAccessor     "0:"+CodeIdentifier.EscapedKeywords(typeof(MyCollection).FullName)
-        // ----------------------------------------------------------------------------------
-        private Hashtable _reflectionVariables = null;
-        private int _nextReflectionVariableNumber = 0;
-        private IndentedWriter _writer;
-        internal ReflectionAwareCodeGen(IndentedWriter writer)
-        {
-            _writer = writer;
-        }
-
-        internal void WriteReflectionInit(TypeScope scope)
-        {
-            foreach (Type type in scope.Types)
-            {
-                TypeDesc typeDesc = scope.GetTypeDesc(type);
-                if (typeDesc.UseReflection)
-                    WriteTypeInfo(scope, typeDesc, type);
-            }
-        }
-
-        private string WriteTypeInfo(TypeScope scope, TypeDesc typeDesc, Type type)
-        {
-            InitTheFirstTime();
-            string typeFullName = typeDesc.CSharpName;
-            string typeVariable = (string)_reflectionVariables[typeFullName];
-            if (typeVariable != null)
-                return typeVariable;
-
-            if (type.IsArray)
-            {
-                typeVariable = GenerateVariableName("array", typeDesc.CSharpName);
-                TypeDesc elementTypeDesc = typeDesc.ArrayElementTypeDesc;
-                if (elementTypeDesc.UseReflection)
-                {
-                    string elementTypeVariable = WriteTypeInfo(scope, elementTypeDesc, scope.GetTypeFromTypeDesc(elementTypeDesc));
-                    _writer.WriteLine("static " + typeof(Type).FullName + " " + typeVariable + " = " + elementTypeVariable + ".MakeArrayType();");
-                }
-                else
-                {
-                    string assemblyVariable = WriteAssemblyInfo(type);
-                    _writer.Write("static " + typeof(Type).FullName + " " + typeVariable + " = " + assemblyVariable + ".GetType(");
-                    WriteQuotedCSharpString(type.FullName);
-                    _writer.WriteLine(");");
-                }
-            }
-            else
-            {
-                typeVariable = GenerateVariableName(nameof(type), typeDesc.CSharpName);
-
-                Type parameterType = Nullable.GetUnderlyingType(type);
-                if (parameterType != null)
-                {
-                    string parameterTypeVariable = WriteTypeInfo(scope, scope.GetTypeDesc(parameterType), parameterType);
-                    _writer.WriteLine("static " + typeof(Type).FullName + " " + typeVariable + " = typeof(System.Nullable<>).MakeGenericType(new " + typeof(Type).FullName + "[] {" + parameterTypeVariable + "});");
-                }
-                else
-                {
-                    string assemblyVariable = WriteAssemblyInfo(type);
-                    _writer.Write("static " + typeof(Type).FullName + " " + typeVariable + " = " + assemblyVariable + ".GetType(");
-                    WriteQuotedCSharpString(type.FullName);
-                    _writer.WriteLine(");");
-                }
-            }
-
-            _reflectionVariables.Add(typeFullName, typeVariable);
-
-            TypeMapping mapping = scope.GetTypeMappingFromTypeDesc(typeDesc);
-            if (mapping != null)
-                WriteMappingInfo(mapping, typeVariable, type);
-            if (typeDesc.IsCollection || typeDesc.IsEnumerable)
-            {// Arrays use the generic item_Array
-                TypeDesc elementTypeDesc = typeDesc.ArrayElementTypeDesc;
-                if (elementTypeDesc.UseReflection)
-                    WriteTypeInfo(scope, elementTypeDesc, scope.GetTypeFromTypeDesc(elementTypeDesc));
-                WriteCollectionInfo(typeVariable, typeDesc, type);
-            }
-            return typeVariable;
-        }
-
-        private void InitTheFirstTime()
-        {
-            if (_reflectionVariables == null)
-            {
-                _reflectionVariables = new Hashtable();
-                _writer.Write(String.Format(CultureInfo.InvariantCulture, s_helperClassesForUseReflection,
-                    "object", "string", typeof(Type).FullName,
-                    typeof(FieldInfo).FullName, typeof(PropertyInfo).FullName,
-                    typeof(MemberInfo).FullName /*, typeof(MemberTypes).FullName*/));
-
-                WriteDefaultIndexerInit(typeof(IList), typeof(Array).FullName, false, false);
-            }
-        }
-
-        private void WriteMappingInfo(TypeMapping mapping, string typeVariable, Type type)
-        {
-            string typeFullName = mapping.TypeDesc.CSharpName;
-            if (mapping is StructMapping)
-            {
-                StructMapping structMapping = mapping as StructMapping;
-                for (int i = 0; i < structMapping.Members.Length; i++)
-                {
-                    MemberMapping member = structMapping.Members[i];
-                    string memberVariable = WriteMemberInfo(type, typeFullName, typeVariable, member.Name);
-                    if (member.CheckShouldPersist)
-                    {
-                        string memberName = "ShouldSerialize" + member.Name;
-                        memberVariable = WriteMethodInfo(typeFullName, typeVariable, memberName, false);
-                    }
-                    if (member.CheckSpecified != SpecifiedAccessor.None)
-                    {
-                        string memberName = member.Name + "Specified";
-                        memberVariable = WriteMemberInfo(type, typeFullName, typeVariable, memberName);
-                    }
-                    if (member.ChoiceIdentifier != null)
-                    {
-                        string memberName = member.ChoiceIdentifier.MemberName;
-                        memberVariable = WriteMemberInfo(type, typeFullName, typeVariable, memberName);
-                    }
-                }
-            }
-            else if (mapping is EnumMapping)
-            {
-                FieldInfo[] enumFields = type.GetFields();
-                for (int i = 0; i < enumFields.Length; i++)
-                {
-                    WriteMemberInfo(type, typeFullName, typeVariable, enumFields[i].Name);
-                }
-            }
-        }
-        private void WriteCollectionInfo(string typeVariable, TypeDesc typeDesc, Type type)
-        {
-            string typeFullName = CodeIdentifier.GetCSharpName(type);
-            string elementTypeFullName = typeDesc.ArrayElementTypeDesc.CSharpName;
-            bool elementUseReflection = typeDesc.ArrayElementTypeDesc.UseReflection;
-            if (typeDesc.IsCollection)
-            {
-                WriteDefaultIndexerInit(type, typeFullName, typeDesc.UseReflection, elementUseReflection);
-            }
-            else if (typeDesc.IsEnumerable)
-            {
-                if (typeDesc.IsGenericInterface)
-                {
-                    WriteMethodInfo(typeFullName, typeVariable, "System.Collections.Generic.IEnumerable*", true);
-                }
-                else if (!typeDesc.IsPrivateImplementation)
-                {
-                    WriteMethodInfo(typeFullName, typeVariable, "GetEnumerator", true);
-                }
-            }
-            WriteMethodInfo(typeFullName, typeVariable, "Add", false, GetStringForTypeof(elementTypeFullName, elementUseReflection));
-        }
-
-        private string WriteAssemblyInfo(Type type)
-        {
-            string assemblyFullName = type.Assembly.FullName;
-            string assemblyVariable = (string)_reflectionVariables[assemblyFullName];
-            if (assemblyVariable == null)
-            {
-                int iComma = assemblyFullName.IndexOf(',');
-                string assemblyName = (iComma > -1) ? assemblyFullName.Substring(0, iComma) : assemblyFullName;
-                assemblyVariable = GenerateVariableName("assembly", assemblyName);
-                //writer.WriteLine("static "+ typeof(Assembly).FullName+" "+assemblyVariable+" = "+typeof(Assembly).FullName+".Load(");
-                _writer.Write("static " + typeof(Assembly).FullName + " " + assemblyVariable + " = " + "ResolveDynamicAssembly(");
-                WriteQuotedCSharpString(DynamicAssemblies.GetName(type.Assembly)/*assemblyFullName*/);
-                _writer.WriteLine(");");
-                _reflectionVariables.Add(assemblyFullName, assemblyVariable);
-            }
-            return assemblyVariable;
-        }
-
-        private string WriteMemberInfo(Type type, string escapedName, string typeVariable, string memberName)
-        {
-            MemberInfo[] memberInfos = type.GetMember(memberName);
-            for (int i = 0; i < memberInfos.Length; i++)
-            {
-                if (memberInfos[i] is PropertyInfo)
-                {
-                    string propVariable = GenerateVariableName("prop", memberName);
-                    _writer.Write("static XSPropInfo " + propVariable + " = new XSPropInfo(" + typeVariable + ", ");
-                    WriteQuotedCSharpString(memberName);
-                    _writer.WriteLine(");");
-                    _reflectionVariables.Add(memberName + ":" + escapedName, propVariable);
-                    return propVariable;
-                }
-                else if (memberInfos[i] is FieldInfo)
-                {
-                    string fieldVariable = GenerateVariableName("field", memberName);
-                    _writer.Write("static XSFieldInfo " + fieldVariable + " = new XSFieldInfo(" + typeVariable + ", ");
-                    WriteQuotedCSharpString(memberName);
-                    _writer.WriteLine(");");
-                    _reflectionVariables.Add(memberName + ":" + escapedName, fieldVariable);
-                    return fieldVariable;
-                }
-            }
-            throw new InvalidOperationException(SR.Format(SR.XmlSerializerUnsupportedType, memberInfos[0].ToString()));
-        }
-
-        private string WriteMethodInfo(string escapedName, string typeVariable, string memberName, bool isNonPublic, params string[] paramTypes)
-        {
-            string methodVariable = GenerateVariableName("method", memberName);
-            _writer.Write("static " + typeof(MethodInfo).FullName + " " + methodVariable + " = " + typeVariable + ".GetMethod(");
-            WriteQuotedCSharpString(memberName);
-            _writer.Write(", ");
-
-            string bindingFlags = typeof(BindingFlags).FullName;
-            _writer.Write(bindingFlags);
-            _writer.Write(".Public | ");
-            _writer.Write(bindingFlags);
-            _writer.Write(".Instance | ");
-            _writer.Write(bindingFlags);
-            _writer.Write(".Static");
-
-            if (isNonPublic)
-            {
-                _writer.Write(" | ");
-                _writer.Write(bindingFlags);
-                _writer.Write(".NonPublic");
-            }
-            _writer.Write(", null, ");
-            _writer.Write("new " + typeof(Type).FullName + "[] { ");
-            for (int i = 0; i < paramTypes.Length; i++)
-            {
-                _writer.Write(paramTypes[i]);
-                if (i < (paramTypes.Length - 1))
-                    _writer.Write(", ");
-            }
-            _writer.WriteLine("}, null);");
-            _reflectionVariables.Add(memberName + ":" + escapedName, methodVariable);
-            return methodVariable;
-        }
-
-        private string WriteDefaultIndexerInit(Type type, string escapedName, bool collectionUseReflection, bool elementUseReflection)
-        {
-            string itemVariable = GenerateVariableName("item", escapedName);
-            PropertyInfo defaultIndexer = TypeScope.GetDefaultIndexer(type, null);
-            _writer.Write("static XSArrayInfo ");
-            _writer.Write(itemVariable);
-            _writer.Write("= new XSArrayInfo(");
-            _writer.Write(GetStringForTypeof(CodeIdentifier.GetCSharpName(type), collectionUseReflection));
-            _writer.Write(".GetProperty(");
-            WriteQuotedCSharpString(defaultIndexer.Name);
-            _writer.Write(",");
-            //defaultIndexer.PropertyType is same as TypeDesc.ElementTypeDesc
-            _writer.Write(GetStringForTypeof(CodeIdentifier.GetCSharpName(defaultIndexer.PropertyType), elementUseReflection));
-            _writer.Write(",new ");
-            _writer.Write(typeof(Type[]).FullName);
-            _writer.WriteLine("{typeof(int)}));");
-            _reflectionVariables.Add(arrayMemberKey + ":" + escapedName, itemVariable);
-            return itemVariable;
-        }
-
-        private string GenerateVariableName(string prefix, string fullName)
-        {
-            ++_nextReflectionVariableNumber;
-            return prefix + _nextReflectionVariableNumber + "_" +
-                CodeIdentifier.MakeValidInternal(fullName.Replace('.', '_'));
-        }
-        internal string GetReflectionVariable(string typeFullName, string memberName)
-        {
-            string key;
-            if (memberName == null)
-                key = typeFullName;
-            else
-                key = memberName + ":" + typeFullName;
-            return (string)_reflectionVariables[key];
-        }
-
-
-        internal string GetStringForMethodInvoke(string obj, string escapedTypeName, string methodName, bool useReflection, params string[] args)
-        {
-            StringBuilder sb = new StringBuilder();
-            if (useReflection)
-            {
-                sb.Append(GetReflectionVariable(escapedTypeName, methodName));
-                sb.Append(".Invoke(");
-                sb.Append(obj);
-                sb.Append(", new object[] {");
-            }
-            else
-            {
-                sb.Append(obj);
-                sb.Append(".@");
-                sb.Append(methodName);
-                sb.Append("(");
-            }
-            for (int i = 0; i < args.Length; i++)
-            {
-                if (i != 0)
-                    sb.Append(", ");
-                sb.Append(args[i]);
-            }
-            if (useReflection)
-                sb.Append("})");
-            else
-                sb.Append(")");
-            return sb.ToString();
-        }
-
-        internal string GetStringForEnumCompare(EnumMapping mapping, string memberName, bool useReflection)
-        {
-            if (!useReflection)
-            {
-                CodeIdentifier.CheckValidIdentifier(memberName);
-                return mapping.TypeDesc.CSharpName + ".@" + memberName;
-            }
-            string memberAccess = GetStringForEnumMember(mapping.TypeDesc.CSharpName, memberName, useReflection);
-            return GetStringForEnumLongValue(memberAccess, useReflection);
-        }
-        internal string GetStringForEnumLongValue(string variable, bool useReflection)
-        {
-            if (useReflection)
-                return typeof(Convert).FullName + ".ToInt64(" + variable + ")";
-            return "((" + typeof(long).FullName + ")" + variable + ")";
-        }
-
-        internal string GetStringForTypeof(string typeFullName, bool useReflection)
-        {
-            if (useReflection)
-            {
-                return GetReflectionVariable(typeFullName, null);
-            }
-            else
-            {
-                return "typeof(" + typeFullName + ")";
-            }
-        }
-        internal string GetStringForMember(string obj, string memberName, TypeDesc typeDesc)
-        {
-            if (!typeDesc.UseReflection)
-                return obj + ".@" + memberName;
-
-            TypeDesc saveTypeDesc = typeDesc;
-            while (typeDesc != null)
-            {
-                string typeFullName = typeDesc.CSharpName;
-                string memberInfoName = GetReflectionVariable(typeFullName, memberName);
-                if (memberInfoName != null)
-                    return memberInfoName + "[" + obj + "]";
-                // member may be part of the basetype 
-                typeDesc = typeDesc.BaseTypeDesc;
-                if (typeDesc != null && !typeDesc.UseReflection)
-                    return "((" + typeDesc.CSharpName + ")" + obj + ").@" + memberName;
-            }
-            //throw GetReflectionVariableException(saveTypeDesc.CSharpName,memberName); 
-            // NOTE, sowmys:Must never happen. If it does let the code
-            // gen continue to help debugging what's gone wrong.
-            // Eventually the compilation will fail.
-            return "[" + obj + "]";
-        }
-        /*
-        Exception GetReflectionVariableException(string typeFullName, string memberName){
-            string key;
-            if(memberName == null)
-                key = typeFullName;
-            else
-                key = memberName+":"+typeFullName;
-            System.Text.StringBuilder sb = new System.Text.StringBuilder();
-            foreach(object varAvail in reflectionVariables.Keys){
-                sb.Append(varAvail.ToString());
-                sb.Append("\n");
-            }
-            return new Exception("No reflection variable for " + key + "\nAvailable keys\n"+sb.ToString());
-        }*/
-
-        internal string GetStringForEnumMember(string typeFullName, string memberName, bool useReflection)
-        {
-            if (!useReflection)
-                return typeFullName + ".@" + memberName;
-
-            string memberInfoName = GetReflectionVariable(typeFullName, memberName);
-            return memberInfoName + "[null]";
-        }
-        internal string GetStringForArrayMember(string arrayName, string subscript, TypeDesc arrayTypeDesc)
-        {
-            if (!arrayTypeDesc.UseReflection)
-            {
-                return arrayName + "[" + subscript + "]";
-            }
-            string typeFullName = arrayTypeDesc.IsCollection ? arrayTypeDesc.CSharpName : typeof(Array).FullName;
-            string arrayInfo = GetReflectionVariable(typeFullName, arrayMemberKey);
-            return arrayInfo + "[" + arrayName + ", " + subscript + "]";
-        }
-        internal string GetStringForMethod(string obj, string typeFullName, string memberName, bool useReflection)
-        {
-            if (!useReflection)
-                return obj + "." + memberName + "(";
-
-            string memberInfoName = GetReflectionVariable(typeFullName, memberName);
-            return memberInfoName + ".Invoke(" + obj + ", new object[]{";
-        }
-        internal string GetStringForCreateInstance(string escapedTypeName, bool useReflection, bool ctorInaccessible, bool cast)
-        {
-            return GetStringForCreateInstance(escapedTypeName, useReflection, ctorInaccessible, cast, string.Empty);
-        }
-
-        internal string GetStringForCreateInstance(string escapedTypeName, bool useReflection, bool ctorInaccessible, bool cast, string arg)
-        {
-            if (!useReflection && !ctorInaccessible)
-                return "new " + escapedTypeName + "(" + arg + ")";
-            return GetStringForCreateInstance(GetStringForTypeof(escapedTypeName, useReflection), cast && !useReflection ? escapedTypeName : null, ctorInaccessible, arg);
-        }
-
-        internal string GetStringForCreateInstance(string type, string cast, bool nonPublic, string arg)
-        {
-            StringBuilder createInstance = new StringBuilder();
-            if (cast != null && cast.Length > 0)
-            {
-                createInstance.Append("(");
-                createInstance.Append(cast);
-                createInstance.Append(")");
-            }
-            createInstance.Append(typeof(Activator).FullName);
-            createInstance.Append(".CreateInstance(");
-            createInstance.Append(type);
-            createInstance.Append(", ");
-            string bindingFlags = typeof(BindingFlags).FullName;
-            createInstance.Append(bindingFlags);
-            createInstance.Append(".Instance | ");
-            createInstance.Append(bindingFlags);
-            createInstance.Append(".Public | ");
-            createInstance.Append(bindingFlags);
-            createInstance.Append(".CreateInstance");
-
-            if (nonPublic)
-            {
-                createInstance.Append(" | ");
-                createInstance.Append(bindingFlags);
-                createInstance.Append(".NonPublic");
-            }
-            if (arg == null || arg.Length == 0)
-            {
-                createInstance.Append(", null, new object[0], null)");
-            }
-            else
-            {
-                createInstance.Append(", null, new object[] { ");
-                createInstance.Append(arg);
-                createInstance.Append(" }, null)");
-            }
-            return createInstance.ToString();
-        }
-
-        internal void WriteLocalDecl(string typeFullName, string variableName, string initValue, bool useReflection)
-        {
-            if (useReflection)
-                typeFullName = "object";
-            _writer.Write(typeFullName);
-            _writer.Write(" ");
-            _writer.Write(variableName);
-            if (initValue != null)
-            {
-                _writer.Write(" = ");
-                if (!useReflection && initValue != "null")
-                {
-                    _writer.Write("(" + typeFullName + ")");
-                }
-                _writer.Write(initValue);
-            }
-            _writer.WriteLine(";");
-        }
-
-        internal void WriteCreateInstance(string escapedName, string source, bool useReflection, bool ctorInaccessible)
-        {
-            _writer.Write(useReflection ? "object" : escapedName);
-            _writer.Write(" ");
-            _writer.Write(source);
-            _writer.Write(" = ");
-            _writer.Write(GetStringForCreateInstance(escapedName, useReflection, ctorInaccessible, !useReflection && ctorInaccessible));
-            _writer.WriteLine(";");
-        }
-        internal void WriteInstanceOf(string source, string escapedTypeName, bool useReflection)
-        {
-            if (!useReflection)
-            {
-                _writer.Write(source);
-                _writer.Write(" is ");
-                _writer.Write(escapedTypeName);
-                return;
-            }
-            _writer.Write(GetReflectionVariable(escapedTypeName, null));
-            _writer.Write(".IsAssignableFrom(");
-            _writer.Write(source);
-            _writer.Write(".GetType())");
-        }
-
-        internal void WriteArrayLocalDecl(string typeName, string variableName, string initValue, TypeDesc arrayTypeDesc)
-        {
-            if (arrayTypeDesc.UseReflection)
-            {
-                if (arrayTypeDesc.IsEnumerable)
-                    typeName = typeof(IEnumerable).FullName;
-                else if (arrayTypeDesc.IsCollection)
-                    typeName = typeof(ICollection).FullName;
-                else
-                    typeName = typeof(Array).FullName;
-            }
-            _writer.Write(typeName);
-            _writer.Write(" ");
-            _writer.Write(variableName);
-            if (initValue != null)
-            {
-                _writer.Write(" = ");
-                if (initValue != "null")
-                    _writer.Write("(" + typeName + ")");
-                _writer.Write(initValue);
-            }
-            _writer.WriteLine(";");
-        }
-        internal void WriteEnumCase(string fullTypeName, ConstantMapping c, bool useReflection)
-        {
-            _writer.Write("case ");
-            if (useReflection)
-            {
-                _writer.Write(c.Value.ToString(CultureInfo.InvariantCulture));
-            }
-            else
-            {
-                _writer.Write(fullTypeName);
-                _writer.Write(".@");
-                CodeIdentifier.CheckValidIdentifier(c.Name);
-                _writer.Write(c.Name);
-            }
-            _writer.Write(": ");
-        }
-        internal void WriteTypeCompare(string variable, string escapedTypeName, bool useReflection)
-        {
-            _writer.Write(variable);
-            _writer.Write(" == ");
-            _writer.Write(GetStringForTypeof(escapedTypeName, useReflection));
-        }
-        internal void WriteArrayTypeCompare(string variable, string escapedTypeName, string elementTypeName, bool useReflection)
-        {
-            if (!useReflection)
-            {
-                _writer.Write(variable);
-                _writer.Write(" == typeof(");
-                _writer.Write(escapedTypeName);
-                _writer.Write(")");
-                return;
-            }
-            _writer.Write(variable);
-            _writer.Write(".IsArray ");
-            _writer.Write(" && ");
-            WriteTypeCompare(variable + ".GetElementType()", elementTypeName, useReflection);
-        }
-
-        internal static void WriteQuotedCSharpString(IndentedWriter writer, string value)
-        {
-            if (value == null)
-            {
-                writer.Write("null");
-                return;
-            }
-            writer.Write("@\"");
-            foreach (char ch in value)
-            {
-                if (ch < 32)
-                {
-                    if (ch == '\r')
-                        writer.Write("\\r");
-                    else if (ch == '\n')
-                        writer.Write("\\n");
-                    else if (ch == '\t')
-                        writer.Write("\\t");
-                    else
-                    {
-                        byte b = (byte)ch;
-                        writer.Write("\\x");
-                        writer.Write(hexDigits[b >> 4]);
-                        writer.Write(hexDigits[b & 0xF]);
-                    }
-                }
-                else if (ch == '\"')
-                {
-                    writer.Write("\"\"");
-                }
-                else
-                {
-                    writer.Write(ch);
-                }
-            }
-            writer.Write("\"");
-        }
-
-        internal void WriteQuotedCSharpString(string value)
-        {
-            WriteQuotedCSharpString(_writer, value);
-        }
-
-        private static string s_helperClassesForUseReflection = @"
-    sealed class XSFieldInfo {{
-       {3} fieldInfo;
-        public XSFieldInfo({2} t, {1} memberName){{
-            fieldInfo = t.GetField(memberName);
-        }}
-        public {0} this[{0} o] {{
-            get {{
-                return fieldInfo.GetValue(o);
-            }}
-            set {{
-                fieldInfo.SetValue(o, value);
-            }}
-        }}
-
-    }}
-    sealed class XSPropInfo {{
-        {4} propInfo;
-        public XSPropInfo({2} t, {1} memberName){{
-            propInfo = t.GetProperty(memberName);
-        }}
-        public {0} this[{0} o] {{
-            get {{
-                return propInfo.GetValue(o, null);
-            }}
-            set {{
-                propInfo.SetValue(o, value, null);
-            }}
-        }}
-    }}
-    sealed class XSArrayInfo {{
-        {4} propInfo;
-        public XSArrayInfo({4} propInfo){{
-            this.propInfo = propInfo;
-        }}
-        public {0} this[{0} a, int i] {{
-            get {{
-                return propInfo.GetValue(a, new {0}[]{{i}});
-            }}
-            set {{
-                propInfo.SetValue(a, value, new {0}[]{{i}});
-            }}
-        }}
-    }}
-";
-    }
+#endif
 }

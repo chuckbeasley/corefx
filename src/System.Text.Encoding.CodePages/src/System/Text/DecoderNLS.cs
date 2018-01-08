@@ -21,7 +21,6 @@ namespace System.Text
     // class are typically obtained through calls to the GetDecoder method
     // of Encoding objects.
     //
-    [Serializable]
     internal class DecoderNLS : Decoder, ISerializable
     {
         // Remember our encoding
@@ -48,45 +47,7 @@ namespace System.Text
 
         void ISerializable.GetObjectData(SerializationInfo info, StreamingContext context)
         {
-            info.AddValue(DecoderNLSSurrogate.EncodingKey, m_encoding);
-            info.AddValue(DecoderNLSSurrogate.DecoderFallbackKey, m_fallback);
-            info.SetType(typeof(DecoderNLSSurrogate));
-        }
-
-        [Serializable]
-        internal sealed class DecoderNLSSurrogate : IObjectReference, ISerializable
-        {
-            internal const string EncodingKey = "Encoding";
-            internal const string DecoderFallbackKey = "DecoderFallback";
-
-            private readonly Encoding _encoding;
-            private readonly DecoderFallback _fallback;
-
-            internal DecoderNLSSurrogate(SerializationInfo info, StreamingContext context)
-            {
-                if (info == null)
-                {
-                    throw new ArgumentNullException(nameof(info));
-                }
-                _encoding = (Encoding)info.GetValue(EncodingKey, typeof(Encoding));
-                _fallback = (DecoderFallback)info.GetValue(DecoderFallbackKey, typeof(DecoderFallback));
-            }
-
-            public object GetRealObject(StreamingContext context)
-            {
-                Decoder decoder = _encoding.GetDecoder();
-                if (_fallback != null)
-                {
-                    decoder.Fallback = _fallback;
-                }
-                return decoder;
-            }
-
-            public void GetObjectData(SerializationInfo info, StreamingContext context)
-            {
-                // This should never be called.  If it is, there's a bug in the formatter being used.
-                throw new NotSupportedException();
-            }
+            throw new PlatformNotSupportedException();
         }
 
         internal new DecoderFallback Fallback
@@ -129,7 +90,6 @@ namespace System.Text
             return GetCharCount(bytes, index, count, false);
         }
 
-        [System.Security.SecuritySafeCritical]  // auto-generated
         public override unsafe int GetCharCount(byte[] bytes, int index, int count, bool flush)
         {
             // Validate Parameters
@@ -153,7 +113,6 @@ namespace System.Text
                 return GetCharCount(pBytes + index, count, flush);
         }
 
-        [System.Security.SecurityCritical]  // auto-generated
         public override unsafe int GetCharCount(byte* bytes, int count, bool flush)
         {
             // Validate parameters
@@ -178,7 +137,6 @@ namespace System.Text
             return GetChars(bytes, byteIndex, byteCount, chars, charIndex, false);
         }
 
-        [System.Security.SecuritySafeCritical]  // auto-generated
         public override unsafe int GetChars(byte[] bytes, int byteIndex, int byteCount,
                                              char[] chars, int charIndex, bool flush)
         {
@@ -213,7 +171,6 @@ namespace System.Text
                                     pChars + charIndex, charCount, flush);
         }
 
-        [System.Security.SecurityCritical]  // auto-generated
         public override unsafe int GetChars(byte* bytes, int byteCount,
                                               char* chars, int charCount, bool flush)
         {
@@ -235,7 +192,6 @@ namespace System.Text
 
         // This method is used when the output buffer might not be big enough.
         // Just call the pointer version.  (This gets chars)
-        [System.Security.SecuritySafeCritical]  // auto-generated
         public override unsafe void Convert(byte[] bytes, int byteIndex, int byteCount,
                                               char[] chars, int charIndex, int charCount, bool flush,
                                               out int bytesUsed, out int charsUsed, out bool completed)
@@ -277,7 +233,6 @@ namespace System.Text
 
         // This is the version that used pointers.  We call the base encoding worker function
         // after setting our appropriate internal variables.  This is getting chars
-        [System.Security.SecurityCritical]  // auto-generated
         public override unsafe void Convert(byte* bytes, int byteCount,
                                               char* chars, int charCount, bool flush,
                                               out int bytesUsed, out int charsUsed, out bool completed)

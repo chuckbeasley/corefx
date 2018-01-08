@@ -2,14 +2,13 @@
 // The .NET Foundation licenses this file to you under the MIT license.
 // See the LICENSE file in the project root for more information.
 
-using System;
 using System.Collections.Generic;
 using System.Globalization;
 using Xunit;
 
 namespace System.Tests
 {
-    public static class UInt32Tests
+    public partial class UInt32Tests
     {
         [Fact]
         public static void Ctor_Empty()
@@ -45,22 +44,22 @@ namespace System.Tests
         [InlineData((uint)234, (uint)456, -1)]
         [InlineData((uint)234, uint.MaxValue, -1)]
         [InlineData((uint)234, null, 1)]
-        public static void CompareTo(uint i, object value, int expected)
+        public void CompareTo_Other_ReturnsExpected(uint i, object value, int expected)
         {
-            if (value is uint)
+            if (value is uint uintValue)
             {
-                Assert.Equal(expected, Math.Sign(i.CompareTo((uint)value)));
+                Assert.Equal(expected, Math.Sign(i.CompareTo(uintValue)));
             }
-            IComparable comparable = i;
-            Assert.Equal(expected, Math.Sign(comparable.CompareTo(value)));
+
+            Assert.Equal(expected, Math.Sign(i.CompareTo(value)));
         }
 
-        [Fact]
-        public static void CompareTo_ObjectNotUInt_ThrowsArgumentException()
+        [Theory]
+        [InlineData("a")]
+        [InlineData(234)]
+        public void CompareTo_ObjectNotUint_ThrowsArgumentException(object value)
         {
-            IComparable comparable = (uint)234;
-            Assert.Throws<ArgumentException>(null, () => comparable.CompareTo("a")); // Obj is not a uint
-            Assert.Throws<ArgumentException>(null, () => comparable.CompareTo(234)); // Obj is not a uint
+            AssertExtensions.Throws<ArgumentException>(null, () => ((uint)123).CompareTo(value));
         }
 
         [Theory]
@@ -82,21 +81,43 @@ namespace System.Tests
             Assert.Equal(expected, i1.Equals(obj));
         }
 
+        [Fact]
+        public void GetTypeCode_Invoke_ReturnsUInt32()
+        {
+            Assert.Equal(TypeCode.UInt32, ((uint)1).GetTypeCode());
+        }
+
         public static IEnumerable<object[]> ToString_TestData()
         {
-            NumberFormatInfo emptyFormat = NumberFormatInfo.CurrentInfo;
-            yield return new object[] { (uint)0, "G", emptyFormat, "0" };
-            yield return new object[] { (uint)4567, "G", emptyFormat, "4567" };
-            yield return new object[] { uint.MaxValue, "G", emptyFormat, "4294967295" };
+            foreach (NumberFormatInfo defaultFormat in new[] { null, NumberFormatInfo.CurrentInfo })
+            {
+                yield return new object[] { (uint)0, "G", defaultFormat, "0" };
+                yield return new object[] { (uint)4567, "G", defaultFormat, "4567" };
+                yield return new object[] { uint.MaxValue, "G", defaultFormat, "4294967295" };
 
-            yield return new object[] { (uint)0x2468, "x", emptyFormat, "2468" };
-            yield return new object[] { (uint)2468, "N", emptyFormat, string.Format("{0:N}", 2468.00) };
+                yield return new object[] { (uint)4567, "D", defaultFormat, "4567" };
+                yield return new object[] { (uint)4567, "D18", defaultFormat, "000000000000004567" };
 
-            NumberFormatInfo customFormat = new NumberFormatInfo();
-            customFormat.NegativeSign = "#";
-            customFormat.NumberDecimalSeparator = "~";
-            customFormat.NumberGroupSeparator = "*";
+                yield return new object[] { (uint)0x2468, "x", defaultFormat, "2468" };
+                yield return new object[] { (uint)2468, "N", defaultFormat, string.Format("{0:N}", 2468.00) };
+            }
+
+            var customFormat = new NumberFormatInfo()
+            {
+                NegativeSign = "#",
+                NumberDecimalSeparator = "~",
+                NumberGroupSeparator = "*",
+                PositiveSign = "&",
+                NumberDecimalDigits = 2,
+                PercentSymbol = "@",
+                PercentGroupSeparator = ",",
+                PercentDecimalSeparator = ".",
+                PercentDecimalDigits = 5
+            };
             yield return new object[] { (uint)2468, "N", customFormat, "2*468~00" };
+            yield return new object[] { (uint)123, "E", customFormat, "1~230000E&002" };
+            yield return new object[] { (uint)123, "F", customFormat, "123~00" };
+            yield return new object[] { (uint)123, "P", customFormat, "12,300.00000 @" };
         }
 
         [Theory]
@@ -268,16 +289,16 @@ namespace System.Tests
         }
 
         [Theory]
-        [InlineData(NumberStyles.HexNumber | NumberStyles.AllowParentheses)]
-        [InlineData(unchecked((NumberStyles)0xFFFFFC00))]
-        public static void TryParse_InvalidNumberStyle_ThrowsArgumentException(NumberStyles style)
+        [InlineData(NumberStyles.HexNumber | NumberStyles.AllowParentheses, null)]
+        [InlineData(unchecked((NumberStyles)0xFFFFFC00), "style")]
+        public static void TryParse_InvalidNumberStyle_ThrowsArgumentException(NumberStyles style, string paramName)
         {
             uint result = 0;
-            Assert.Throws<ArgumentException>(() => uint.TryParse("1", style, null, out result));
+            AssertExtensions.Throws<ArgumentException>(paramName, () => uint.TryParse("1", style, null, out result));
             Assert.Equal(default(uint), result);
 
-            Assert.Throws<ArgumentException>(() => uint.Parse("1", style));
-            Assert.Throws<ArgumentException>(() => uint.Parse("1", style, null));
+            AssertExtensions.Throws<ArgumentException>(paramName, () => uint.Parse("1", style));
+            AssertExtensions.Throws<ArgumentException>(paramName, () => uint.Parse("1", style, null));
         }
     }
 }

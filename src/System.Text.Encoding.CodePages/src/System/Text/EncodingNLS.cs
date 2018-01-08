@@ -21,7 +21,6 @@ namespace System.Text
     // encodings.
     // So if you change the wrappers in this class, you must change the wrappers in the other classes
     // as well because they should have the same behavior.
-    [Serializable]
     internal abstract class EncodingNLS : Encoding
     {
         private string _encodingName;
@@ -47,7 +46,6 @@ namespace System.Text
         // All of our public Encodings that don't use EncodingNLS must have this (including EncodingNLS)
         // So if you fix this, fix the others. 
         // parent method is safe
-        [System.Security.SecuritySafeCritical] // overrides public transparent member
         public override unsafe int GetByteCount(char[] chars, int index, int count)
         {
             // Validate input parameters
@@ -73,7 +71,6 @@ namespace System.Text
         // All of our public Encodings that don't use EncodingNLS must have this (including EncodingNLS)
         // So if you fix this, fix the others. 
         // parent method is safe
-        [System.Security.SecuritySafeCritical] // overrides public transparent member
         public override unsafe int GetByteCount(String s)
         {
             // Validate input
@@ -87,7 +84,6 @@ namespace System.Text
 
         // All of our public Encodings that don't use EncodingNLS must have this (including EncodingNLS)
         // So if you fix this, fix the others.
-        [System.Security.SecurityCritical]  // auto-generated
         public override unsafe int GetByteCount(char* chars, int count)
         {
             // Validate Parameters
@@ -106,7 +102,6 @@ namespace System.Text
         // All of our public Encodings that don't use EncodingNLS must have this (including EncodingNLS)
         // So if you fix this, fix the others.
 
-        [System.Security.SecuritySafeCritical] // overrides public transparent member
         public override unsafe int GetBytes(String s, int charIndex, int charCount,
                                               byte[] bytes, int byteIndex)
         {
@@ -147,7 +142,6 @@ namespace System.Text
         // All of our public Encodings that don't use EncodingNLS must have this (including EncodingNLS)
         // So if you fix this, fix the others.  
         // parent method is safe
-        [System.Security.SecuritySafeCritical] // overrides public transparent member
         public override unsafe int GetBytes(char[] chars, int charIndex, int charCount,
                                                byte[] bytes, int byteIndex)
         {
@@ -185,7 +179,6 @@ namespace System.Text
 
         // All of our public Encodings that don't use EncodingNLS must have this (including EncodingNLS)
         // So if you fix this, fix the others. 
-        [System.Security.SecurityCritical]  // auto-generated
         public override unsafe int GetBytes(char* chars, int charCount, byte* bytes, int byteCount)
         {
             // Validate Parameters
@@ -205,7 +198,6 @@ namespace System.Text
         // All of our public Encodings that don't use EncodingNLS must have this (including EncodingNLS)
         // So if you fix this, fix the others.  
         // parent method is safe
-        [System.Security.SecuritySafeCritical] // overrides public transparent member
         public override unsafe int GetCharCount(byte[] bytes, int index, int count)
         {
             // Validate Parameters
@@ -230,7 +222,6 @@ namespace System.Text
 
         // All of our public Encodings that don't use EncodingNLS must have this (including EncodingNLS)
         // So if you fix this, fix the others.  
-        [System.Security.SecurityCritical]  // auto-generated
         public override unsafe int GetCharCount(byte* bytes, int count)
         {
             // Validate Parameters
@@ -247,7 +238,6 @@ namespace System.Text
         // All of our public Encodings that don't use EncodingNLS must have this (including EncodingNLS)
         // So if you fix this, fix the others.  
         // parent method is safe
-        [System.Security.SecuritySafeCritical] // overrides public transparent member
         public override unsafe int GetChars(byte[] bytes, int byteIndex, int byteCount,
                                               char[] chars, int charIndex)
         {
@@ -285,7 +275,6 @@ namespace System.Text
 
         // All of our public Encodings that don't use EncodingNLS must have this (including EncodingNLS)
         // So if you fix this, fix the others.  
-        [System.Security.SecurityCritical]  // auto-generated
         public unsafe override int GetChars(byte* bytes, int byteCount, char* chars, int charCount)
         {
             // Validate Parameters
@@ -305,7 +294,6 @@ namespace System.Text
         // All of our public Encodings that don't use EncodingNLS must have this (including EncodingNLS)
         // So if you fix this, fix the others.
         // parent method is safe
-        [System.Security.SecuritySafeCritical] // overrides public transparent member
         public override unsafe String GetString(byte[] bytes, int index, int count)
         {
             // Validate Parameters
@@ -577,64 +565,6 @@ namespace System.Text
                     }
                 }
                 return _webName;
-            }
-        }
-
-        [Serializable]
-        protected sealed class CodePageEncodingSurrogate : ISerializable, IObjectReference
-        {
-            internal const string CodePageKey = "CodePage";
-            internal const string IsReadOnlyKey = "IsReadOnly";
-            internal const string EncoderFallbackKey = "EncoderFallback";
-            internal const string DecoderFallbackKey = "DecoderFallback";
-
-            private readonly int _codePage;
-            private readonly bool _isReadOnly;
-            private readonly EncoderFallback _encoderFallback;
-            private readonly DecoderFallback _decoderFallback;
-
-            internal CodePageEncodingSurrogate(SerializationInfo info, StreamingContext context)
-            {
-                if (info == null)
-                {
-                    throw new ArgumentNullException(nameof(info));
-                }
-
-                _codePage = (int)info.GetValue(CodePageKey, typeof(int));
-                _isReadOnly = (bool)info.GetValue(IsReadOnlyKey, typeof(bool));
-                _encoderFallback = (EncoderFallback)info.GetValue(EncoderFallbackKey, typeof(EncoderFallback));
-                _decoderFallback = (DecoderFallback)info.GetValue(DecoderFallbackKey, typeof(DecoderFallback));
-            }
-
-            internal static void SerializeEncoding(Encoding e, SerializationInfo info, StreamingContext context)
-            {
-                if (info == null)
-                {
-                    throw new ArgumentNullException(nameof(info));
-                }
-
-                info.AddValue(CodePageKey, e.CodePage);
-                info.AddValue(IsReadOnlyKey, e.IsReadOnly);
-                info.AddValue(EncoderFallbackKey, e.EncoderFallback);
-                info.AddValue(DecoderFallbackKey, e.DecoderFallback);
-            }
-
-            public object GetRealObject(StreamingContext context)
-            {
-                Encoding realEncoding = GetEncoding(_codePage);
-                if (!_isReadOnly)
-                {
-                    realEncoding = (Encoding)realEncoding.Clone();
-                    realEncoding.EncoderFallback = _encoderFallback;
-                    realEncoding.DecoderFallback = _decoderFallback;
-                }
-                return realEncoding;
-            }
-
-            void ISerializable.GetObjectData(SerializationInfo info, StreamingContext context)
-            {
-                // This should never be called.  If it is, there's a bug in the formatter being used.
-                throw new NotSupportedException();
             }
         }
     }

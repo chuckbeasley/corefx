@@ -7,13 +7,15 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <PlatformTarget>AnyCPU</PlatformTarget>
     <IsPartialFacadeAssembly Condition="'$(TargetGroup)' == 'netfx'">true</IsPartialFacadeAssembly>
+    <DefineConstants Condition="'$(TargetGroup)' == 'netfx'">$(DefineConstants);netfx</DefineConstants>
+    <DefineConstants Condition="'$(TargetGroup)' == 'uapaot'">$(DefineConstants);uapaot</DefineConstants>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'netcoreapp-Debug|AnyCPU'" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'netcoreapp-Release|AnyCPU'" />
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'netfx-Debug|AnyCPU'" />
-  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'netfx-Release|AnyCPU'" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'uap-Windows_NT-Debug|AnyCPU'" />
   <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'uap-Windows_NT-Release|AnyCPU'" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'uapaot-Windows_NT-Debug|AnyCPU'" />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)' == 'uapaot-Windows_NT-Release|AnyCPU'" />
   <ItemGroup>
     <Compile Include="System\Data\Common\DbColumn.cs" />
     <Compile Include="System\Data\Common\IDbColumnSchemaGenerator.cs" />
@@ -34,7 +36,6 @@
     <Compile Include="System\Xml\RegionIterator.cs" />
     <Compile Include="System\Data\updatestatus.cs" />
     <Compile Include="System\Data\XDRSchema.cs" />
-    <Compile Include="System\Data\XmlContent.cs" />
     <Compile Include="System\Data\XmlDataLoader.cs" />
     <Compile Include="System\Data\XMLDiffLoader.cs" />
     <Compile Include="System\Data\XmlKeywords.cs" />
@@ -56,7 +57,9 @@
     <Compile Include="System\Data\ConstraintCollection.cs" />
     <Compile Include="System\Data\ConstraintConverter.cs" />
     <Compile Include="System\Data\ConstraintEnumerator.cs" />
-    <Compile Include="System\Data\DataColumn.cs" />
+    <Compile Include="System\Data\DataColumn.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="System\Data\DataColumnChangeEvent.cs" />
     <Compile Include="System\Data\DataColumnChangeEventHandler.cs" />
     <Compile Include="System\Data\DataColumnCollection.cs" />
@@ -77,10 +80,14 @@
     <Compile Include="System\Data\DataRowVersion.cs" />
     <Compile Include="System\Data\DataRowView.cs" />
     <Compile Include="System\Data\DataSerializationFormat.cs" />
-    <Compile Include="System\Data\DataSet.cs" />
+    <Compile Include="System\Data\DataSet.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="System\Data\DataSetDateTime.cs" />
     <Compile Include="System\Data\DataSysAttribute.cs" />
-    <Compile Include="System\Data\DataTable.cs" />
+    <Compile Include="System\Data\DataTable.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="System\Data\DataTableClearEvent.cs" />
     <Compile Include="System\Data\DataTableClearEventHandler.cs" />
     <Compile Include="System\Data\DataTableCollection.cs" />
@@ -90,9 +97,13 @@
     <Compile Include="System\Data\DataTableReader.cs" />
     <Compile Include="System\Data\DataTableReaderListener.cs" />
     <Compile Include="System\Data\DataTableTypeConverter.cs" />
-    <Compile Include="System\Data\DataView.cs" />
+    <Compile Include="System\Data\DataView.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="System\Data\DataViewListener.cs" />
-    <Compile Include="System\Data\DataViewManager.cs" />
+    <Compile Include="System\Data\DataViewManager.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="System\Data\DataViewManagerListItemTypeDescriptor.cs" />
     <Compile Include="System\Data\DataViewRowState.cs" />
     <Compile Include="System\Data\DataViewSetting.cs" />
@@ -134,7 +145,9 @@
     <Compile Include="System\Data\RecordManager.cs" />
     <Compile Include="System\Data\StatementCompletedEventArgs.cs" />
     <Compile Include="System\Data\StatementCompletedEventHandler.cs" />
-    <Compile Include="System\Data\RelatedView.cs" />
+    <Compile Include="System\Data\RelatedView.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="System\Data\RelationshipConverter.cs" />
     <Compile Include="System\Data\Rule.cs" />
     <Compile Include="System\Data\SchemaSerializationMode.cs" />
@@ -151,12 +164,17 @@
     <Compile Include="System\Data\UpdateRowSource.cs" />
     <Compile Include="System\Data\Common\UInt64Storage.cs" />
     <Compile Include="System\Data\Common\AdapterSwitches.cs" />
-    <Compile Include="System\Data\Common\AdapterUtil.cs" />
+    <Compile Include="System\Data\Common\AdapterUtil.Common.cs" />
+    <Compile Include="$(CommonPath)\System\Data\Common\AdapterUtil.cs">
+      <Link>System\Data\Common\AdapterUtil.cs</Link>
+    </Compile>
     <Compile Include="System\Data\Common\BigIntegerStorage.cs" />
     <Compile Include="System\Data\Common\BooleanStorage.cs" />
     <Compile Include="System\Data\Common\ByteStorage.cs" />
     <Compile Include="System\Data\Common\CharStorage.cs" />
-    <Compile Include="System\Data\Common\DataAdapter.cs" />
+    <Compile Include="System\Data\Common\DataAdapter.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="System\Data\Common\DataColumnMapping.cs" />
     <Compile Include="System\Data\Common\DataColumnMappingCollection.cs" />
     <Compile Include="System\Data\Common\DataCommonEventSource.cs" />
@@ -166,15 +184,28 @@
     <Compile Include="System\Data\Common\DataTableMappingCollection.cs" />
     <Compile Include="System\Data\Common\DateTimeOffsetStorage.cs" />
     <Compile Include="System\Data\Common\DateTimeStorage.cs" />
-    <Compile Include="System\Data\Common\DbCommand.cs" />
-    <Compile Include="System\Data\Common\DBCommandBuilder.cs" />
-    <Compile Include="System\Data\Common\DbConnection.cs" />
+    <Compile Include="System\Data\Common\DbCommand.cs">
+      <SubType>Component</SubType>
+    </Compile>
+    <Compile Include="System\Data\Common\DBCommandBuilder.cs">
+      <SubType>Component</SubType>
+    </Compile>
+    <Compile Include="System\Data\Common\DbConnection.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="System\Data\Common\DbConnectionOptions.cs" />
-    <Compile Include="System\Data\Common\DbConnectionPoolKey.cs" />
-    <Compile Include="System\Data\Common\DBConnectionString.cs" />
+    <Compile Include="$(CommonPath)\System\Data\Common\DbConnectionOptions.Common.cs">
+      <Link>System\Data\Common\DbConnectionOptions.Common.cs</Link>
+    </Compile>
+    <Compile Include="$(CommonPath)\System\Data\Common\DbConnectionPoolKey.cs">
+      <Link>System\Data\Common\DbConnectionPoolKey.cs</Link>
+    </Compile>
     <Compile Include="System\Data\Common\DbConnectionStringBuilder.cs" />
     <Compile Include="System\Data\Common\DbConnectionStringCommon.cs" />
-    <Compile Include="System\Data\Common\DbDataAdapter.cs" />
+    <Compile Include="System\Data\Common\DbConnectionStringBuilderDescriptor.cs" />
+    <Compile Include="System\Data\Common\DbDataAdapter.cs">
+      <SubType>Component</SubType>
+    </Compile>
     <Compile Include="System\Data\Common\DbDataReader.cs" />
     <Compile Include="System\Data\Common\DbDataReaderExtensions.cs" />
     <Compile Include="System\Data\Common\DbDataRecord.cs" />
@@ -186,6 +217,7 @@
     <Compile Include="System\Data\Common\DbParameter.cs" />
     <Compile Include="System\Data\Common\DbParameterCollection.cs" />
     <Compile Include="System\Data\Common\DbProviderFactory.cs" />
+    <Compile Include="System\Data\Common\DbProviderFactories.cs" />
     <Compile Include="System\Data\Common\DbProviderSpecificTypePropertyAttribute.cs" />
     <Compile Include="System\Data\Common\DBSchemaRow.cs" />
     <Compile Include="System\Data\Common\DBSchemaTable.cs" />
@@ -198,8 +230,12 @@
     <Compile Include="System\Data\Common\Int16Storage.cs" />
     <Compile Include="System\Data\Common\Int32Storage.cs" />
     <Compile Include="System\Data\Common\Int64Storage.cs" />
-    <Compile Include="System\Data\Common\MultipartIdentifier.cs" />
-    <Compile Include="System\Data\Common\NameValuePair.cs" />
+    <Compile Include="$(CommonPath)\System\Data\Common\MultipartIdentifier.cs">
+      <Link>System\Data\Common\MultipartIdentifier.cs</Link>
+    </Compile>
+    <Compile Include="$(CommonPath)\System\Data\Common\NameValuePair.cs">
+      <Link>System\Data\Common\NameValuePair.cs</Link>
+    </Compile>
     <Compile Include="System\Data\Common\ObjectStorage.cs" />
     <Compile Include="System\Data\Common\RowUpdatedEventArgs.cs" />
     <Compile Include="System\Data\Common\RowUpdatingEventArgs.cs" />
@@ -253,7 +289,9 @@
     <Compile Include="System\Data\SQLTypes\SQLInt32.cs" />
     <Compile Include="System\Data\SQLTypes\SQLInt64.cs" />
     <Compile Include="System\Data\SQLTypes\SQLMoney.cs" />
-    <Compile Include="System\Data\SQLTypes\SQLResource.cs" />
+    <Compile Include="$(CommonPath)\System\Data\Common\SQLResource.cs">
+      <Link>System\Data\SQLTypes\SQLResource.cs</Link>
+    </Compile>
     <Compile Include="System\Data\SQLTypes\SQLSingle.cs" />
     <Compile Include="System\Data\SQLTypes\SQLString.cs" />
     <Compile Include="System\Data\SQLTypes\SQLUtility.cs" />
@@ -274,9 +312,6 @@
     <Compile Include="System\Data\Common\DbDataReaderExtensions.Facade.cs" />
   </ItemGroup>
   <ItemGroup Condition="'$(TargetGroup)' != 'netfx'">
-    <Reference Include="System.Transactions.Local" />
-  </ItemGroup>
-  <ItemGroup>
     <Reference Include="System.Collections" />
     <Reference Include="System.Collections.Concurrent" />
     <Reference Include="System.Collections.NonGeneric" />
@@ -299,10 +334,16 @@
     <Reference Include="System.Text.RegularExpressions" />
     <Reference Include="System.Threading" />
     <Reference Include="System.Threading.Thread" />
+    <Reference Include="System.Transactions.Local" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TargetGroup)' != 'uapaot' and '$(TargetGroup)' != 'netfx'">
     <Reference Include="System.Xml.ReaderWriter" />
     <Reference Include="System.Xml.XmlSerializer" />
   </ItemGroup>
-  <ItemGroup Condition="'$(TargetGroup)' == 'netcoreapp' or '$(TargetGroup)' == 'uap'">
+  <ItemGroup Condition="'$(TargetGroup)' == 'uapaot'">
+    <ProjectReference Include="..\..\System.Private.Xml\src\System.Private.Xml.csproj" />
+  </ItemGroup>
+  <ItemGroup Condition="'$(TargetGroup)' == 'netcoreapp' or '$(TargetGroup)' == 'uap' or '$(TargetGroup)' == 'uapaot'">
     <EmbeddedResource Include="Resources\$(AssemblyName).rd.xml" />
   </ItemGroup>
   <Import Project="$([MSBuild]::GetDirectoryNameOfFileAbove($(MSBuildThisFileDirectory), dir.targets))\dir.targets" />

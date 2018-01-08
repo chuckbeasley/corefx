@@ -4,6 +4,7 @@
 
 #include "pal_config.h"
 #include "pal_process.h"
+#include "pal_io.h"
 #include "pal_utilities.h"
 
 #include <assert.h>
@@ -91,6 +92,58 @@ static int Dup2WithInterruptedRetry(int oldfd, int newfd)
     return result;
 }
 
+static ssize_t WriteSize(int fd, const void* buffer, size_t count)
+{
+    ssize_t rv = 0;
+    while (count > 0)
+    {
+        ssize_t result = 0;
+        while (CheckInterrupted(result = write(fd, buffer, count)));
+        if (result > 0)
+        {
+            rv += result;
+            buffer = reinterpret_cast<const uint8_t*>(buffer) + result;
+            count -= static_cast<size_t>(result);
+        }
+        else
+        {
+            return -1;
+        }
+    }
+    return rv;
+}
+
+static ssize_t ReadSize(int fd, void* buffer, size_t count)
+{
+    ssize_t rv = 0;
+    while (count > 0)
+    {
+        ssize_t result = 0;
+        while (CheckInterrupted(result = read(fd, buffer, count)));
+        if (result > 0)
+        {
+            rv += result;
+            buffer = reinterpret_cast<uint8_t*>(buffer) + result;
+            count -= static_cast<size_t>(result);
+        }
+        else
+        {
+            return -1;
+        }
+    }
+    return rv;
+}
+
+__attribute__((noreturn))
+static void ExitChild(int pipeToParent, int error)
+{
+    if (pipeToParent != -1)
+    {
+        WriteSize(pipeToParent, &error, sizeof(error));
+    }
+    _exit(error != 0 ? error : EXIT_FAILURE);
+}
+
 extern "C" int32_t SystemNative_ForkAndExecProcess(const char* filename,
                                       char* const argv[],
                                       char* const envp[],
@@ -136,9 +189,11 @@ extern "C" int32_t SystemNative_ForkAndExecProcess(const char* filename,
         goto done;
     }
 
-    // Open pipes for any requests to redirect stdin/stdout/stderr
-    if ((redirectStdin && pipe(stdinFds) != 0) || (redirectStdout && pipe(stdoutFds) != 0) ||
-        (redirectStderr && pipe(stderrFds) != 0))
+    // Open pipes for any requests to redirect stdin/stdout/stderr and set the
+    // close-on-exec flag to the pipe file descriptors.
+    if ((redirectStdin  && SystemNative_Pipe(stdinFds,  PAL_O_CLOEXEC) != 0) ||
+        (redirectStdout && SystemNative_Pipe(stdoutFds, PAL_O_CLOEXEC) != 0) ||
+        (redirectStderr && SystemNative_Pipe(stderrFds, PAL_O_CLOEXEC) != 0))
     {
         success = false;
         goto done;
@@ -150,6 +205,12 @@ extern "C" int32_t SystemNative_ForkAndExecProcess(const char* filename,
     // child process is actually transitioned to the target program.  This avoids problems
     // where the parent process uses members of Process, like ProcessName, when the Process
     // is still the clone of this one. This is a best-effort attempt, so ignore any errors.
+    // If the child fails to exec we use the pipe to pass the errno to the parent process.
+    // NOTE: It's tempting to use SystemNative_Pipe here, as that would simulate pipe2 even
+    // on platforms that don't have it.  But it's potentially problematic, in that if another
+    // process is launched between the pipe creation and the fcntl call to set CLOEXEC on it,
+    // that file descriptor will be inherited into the child process, which will in turn cause
+    // the loop below that waits for that pipe to be closed to loop indefinitely.
 #if HAVE_PIPE2
     pipe2(waitForChildToExecPipe, O_CLOEXEC);
 #endif
@@ -163,22 +224,14 @@ extern "C" int32_t SystemNative_ForkAndExecProcess(const char* filename,
 
     if (processId == 0) // processId == 0 if this is child process
     {
-        // Close the child's copy of the parent end of any open pipes
-        CloseIfOpen(stdinFds[WRITE_END_OF_PIPE]);
-        CloseIfOpen(stdoutFds[READ_END_OF_PIPE]);
-        CloseIfOpen(stderrFds[READ_END_OF_PIPE]);
-
         // For any redirections that should happen, dup the pipe descriptors onto stdin/out/err.
-        // Then close out the old pipe descriptrs, which we no longer need.
+        // We don't need to explicitly close out the old pipe descriptors as they will be closed on the 'execve' call.
         if ((redirectStdin && Dup2WithInterruptedRetry(stdinFds[READ_END_OF_PIPE], STDIN_FILENO) == -1) ||
             (redirectStdout && Dup2WithInterruptedRetry(stdoutFds[WRITE_END_OF_PIPE], STDOUT_FILENO) == -1) ||
             (redirectStderr && Dup2WithInterruptedRetry(stderrFds[WRITE_END_OF_PIPE], STDERR_FILENO) == -1))
         {
-            _exit(errno != 0 ? errno : EXIT_FAILURE);
+            ExitChild(waitForChildToExecPipe[WRITE_END_OF_PIPE], errno);
         }
-        CloseIfOpen(stdinFds[READ_END_OF_PIPE]);
-        CloseIfOpen(stdoutFds[WRITE_END_OF_PIPE]);
-        CloseIfOpen(stderrFds[WRITE_END_OF_PIPE]);
 
         // Change to the designated working directory, if one was specified
         if (nullptr != cwd)
@@ -187,13 +240,13 @@ extern "C" int32_t SystemNative_ForkAndExecProcess(const char* filename,
             while (CheckInterrupted(result = chdir(cwd)));
             if (result == -1)
             {
-                _exit(errno != 0 ? errno : EXIT_FAILURE);
+                ExitChild(waitForChildToExecPipe[WRITE_END_OF_PIPE], errno);
             }
         }
 
         // Finally, execute the new process.  execve will not return if it's successful.
         execve(filename, argv, envp);
-        _exit(errno != 0 ? errno : EXIT_FAILURE); // execve failed
+        ExitChild(waitForChildToExecPipe[WRITE_END_OF_PIPE], errno); // execve failed
     }
 
     // This is the parent process. processId == pid of the child
@@ -217,10 +270,15 @@ done:
     CloseIfOpen(waitForChildToExecPipe[WRITE_END_OF_PIPE]);
     if (waitForChildToExecPipe[READ_END_OF_PIPE] != -1)
     {
-        int ignored;
+        int childError;
         if (success)
         {
-            while (CheckInterrupted(read(waitForChildToExecPipe[READ_END_OF_PIPE], &ignored, 1)));
+            ssize_t result = ReadSize(waitForChildToExecPipe[READ_END_OF_PIPE], &childError, sizeof(childError));
+            if (result == sizeof(childError))
+            {
+                success = false;
+                priorErrno = childError;
+            }
         }
         CloseIfOpen(waitForChildToExecPipe[READ_END_OF_PIPE]);
     }
@@ -285,7 +343,7 @@ static int32_t ConvertRLimitResourcesPalToPlatform(RLimitResources value)
             return RLIMIT_NOFILE;
     }
 
-    assert(false && "Unknown RLIMIT value");
+    assert_msg(false, "Unknown RLIMIT value", static_cast<int>(value));
     return -1;
 }
 
@@ -438,23 +496,12 @@ extern "C" int64_t SystemNative_PathConf(const char* path, PathConfName name)
 
     if (confValue == -1)
     {
-        assert(false && "Unknown PathConfName");
+        assert_msg(false, "Unknown PathConfName", static_cast<int>(name));
         errno = EINVAL;
         return -1;
     }
 
     return pathconf(path, confValue);
-}
-
-extern "C" int64_t SystemNative_GetMaximumPath()
-{
-    int64_t result = pathconf("/", _PC_PATH_MAX);
-    if (result == -1)
-    {
-        result = PATH_MAX;
-    }
-
-    return result;
 }
 
 extern "C" int32_t SystemNative_GetPriority(PriorityWhich which, int32_t who)

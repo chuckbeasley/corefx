@@ -163,9 +163,15 @@ namespace System
             set { ConsolePal.CursorSize = value; }
         }
 
-        public static bool NumberLock { get { return ConsolePal.NumberLock; } }
+        public static bool NumberLock
+        {
+            get { return ConsolePal.NumberLock; }
+        }
 
-        public static bool CapsLock { get { return ConsolePal.CapsLock; } }
+        public static bool CapsLock
+        {
+            get { return ConsolePal.CapsLock; }
+        }
 
         internal const ConsoleColor UnknownColor = (ConsoleColor)(-1);
 
@@ -217,34 +223,14 @@ namespace System
 
         public static int WindowWidth
         {
-            get
-            {
-                return ConsolePal.WindowWidth;
-            }
-            set
-            {
-                if (value <= 0)
-                {
-                    throw new ArgumentOutOfRangeException("width", value, SR.ArgumentOutOfRange_NeedPosNum);
-                }
-                ConsolePal.WindowWidth = value;
-            }
+            get { return ConsolePal.WindowWidth; }
+            set { ConsolePal.WindowWidth = value; }
         }
 
         public static int WindowHeight
         {
-            get
-            {
-                return ConsolePal.WindowHeight;
-            }
-            set
-            {
-                if (value <= 0)
-                {
-                    throw new ArgumentOutOfRangeException("height", value, SR.ArgumentOutOfRange_NeedPosNum);
-                }
-                ConsolePal.WindowHeight = value;
-            }
+            get { return ConsolePal.WindowHeight; }
+            set { ConsolePal.WindowHeight = value; }
         }
 
         public static void SetWindowPosition(int left, int top)
@@ -700,35 +686,6 @@ namespace System
         public static void Write(String value)
         {
             Out.Write(value);
-        }
-
-        [CLSCompliant(false)]
-        [MethodImplAttribute(MethodImplOptions.NoInlining)]
-        public static void WriteLine(string format, object arg0, object arg1, object arg2, object arg3, __arglist)
-        {
-           Out.WriteLine(format, ToObjectArgs(arg0, arg1, arg2, arg3, new ArgIterator(__arglist)));
-        }
-        
-        [CLSCompliant(false)]
-        [MethodImplAttribute(MethodImplOptions.NoInlining)]
-        public static void Write(string format, object arg0, object arg1, object arg2, object arg3, __arglist)
-        {
-           Out.Write(format, ToObjectArgs(arg0, arg1, arg2, arg3, new ArgIterator(__arglist)));
-        }
-        
-        private static object[] ToObjectArgs(object arg0, object arg1, object arg2, object arg3, ArgIterator args)
-        {
-           var objArgs = new object[4 + args.GetRemainingCount()];
-           objArgs[0] = arg0;
-           objArgs[1] = arg1;
-           objArgs[2] = arg2;
-           objArgs[3] = arg3;
-           
-           for (int i = 4; i < objArgs.Length; i++)
-           {
-               objArgs[i] = TypedReference.ToObject(args.GetNextArg());
-           }
-           return objArgs;
         }
 
         private sealed class ControlCDelegateData

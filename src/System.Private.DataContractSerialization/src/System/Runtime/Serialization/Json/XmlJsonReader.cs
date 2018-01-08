@@ -354,7 +354,7 @@ namespace System.Runtime.Serialization.Json
                         throw;
                     }
 
-                    throw new Exception(SR.GenericCallbackException, e);
+                    throw new InvalidOperationException(SR.GenericCallbackException, e);
                 }
             }
             base.Dispose(disposing);
@@ -1687,6 +1687,11 @@ namespace System.Runtime.Serialization.Json
             }
 
             return sb.ToString();
+        }
+
+        protected override XmlSigningNodeWriter CreateSigningNodeWriter()
+        {
+            throw DiagnosticUtility.ExceptionUtility.ThrowHelperError(new NotSupportedException(SR.Format(SR.JsonMethodNotSupported, "CreateSigningNodeWriter")));
         }
 
         private static class CharType

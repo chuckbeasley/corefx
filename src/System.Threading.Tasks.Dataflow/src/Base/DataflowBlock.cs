@@ -15,12 +15,12 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.Diagnostics.Contracts;
-using System.Linq;
 using System.Runtime.CompilerServices;
-using System.Runtime.ExceptionServices;
-using System.Security;
 using System.Threading.Tasks.Dataflow.Internal;
+
+#if USE_INTERNAL_THREADING
 using System.Threading.Tasks.Dataflow.Internal.Threading;
+#endif
 
 namespace System.Threading.Tasks.Dataflow
 {
@@ -132,35 +132,7 @@ namespace System.Threading.Tasks.Dataflow
             {
                 Debug.Assert(_userProvidedPredicate != null, "User-provided predicate is required.");
 
-                return _userProvidedPredicate(item); // avoid state object allocation if execution context isn't needed
-            }
-
-            /// <summary>Manually closes over state necessary in FilteredLinkPropagator.</summary>
-            private sealed class PredicateContextState
-            {
-                /// <summary>The input to be filtered.</summary>
-                internal readonly T Input;
-                /// <summary>The predicate function.</summary>
-                internal readonly Predicate<T> Predicate;
-                /// <summary>The result of the filtering operation.</summary>
-                internal bool Output;
-
-                /// <summary>Initializes the predicate state.</summary>
-                /// <param name="input">The input to be filtered.</param>
-                /// <param name="predicate">The predicate function.</param>
-                internal PredicateContextState(T input, Predicate<T> predicate)
-                {
-                    Debug.Assert(predicate != null, "A predicate with which to filter is required.");
-                    this.Input = input;
-                    this.Predicate = predicate;
-                }
-
-                /// <summary>Runs the predicate function over the input and stores the result into the output.</summary>
-                internal void Run()
-                {
-                    Debug.Assert(Predicate != null, "Non-null predicate required");
-                    Output = Predicate(Input);
-                }
+                return _userProvidedPredicate(item);
             }
 
             /// <include file='XmlDocs/CommonXmlDocComments.xml' path='CommonXmlDocComments/Targets/Member[@name="OfferMessage"]/*' />
@@ -1375,13 +1347,12 @@ namespace System.Threading.Tasks.Dataflow
                         if (_receivedException == null) _receivedException = CreateExceptionForTimeout();
                         goto case ReceiveCoreByLinkingCleanupReason.SourceProtocolError;
                     case ReceiveCoreByLinkingCleanupReason.SourceProtocolError:
-                    case ReceiveCoreByLinkingCleanupReason.ErrorDuringCleanup:
-                        Debug.Assert(_receivedException != null, "We need an exception with which to fault the task.");
+                    case ReceiveCoreByLinkingCleanupReason.ErrorDuringCleanup:                        
                         System.Threading.Tasks.Task.Factory.StartNew(state =>
                         {
                             // Complete with the received exception
                             var target = (ReceiveTarget<T>)state;
-                            try { target.TrySetException(target._receivedException ?? new Exception()); }
+                            try { target.TrySetException(target._receivedException ?? new InvalidOperationException(SR.InvalidOperation_ErrorDuringCleanup)); }
                             catch (ObjectDisposedException) { /* benign race if returned task is already disposed */ }
                         }, this, CancellationToken.None, TaskCreationOptions.None, TaskScheduler.Default);
                         break;

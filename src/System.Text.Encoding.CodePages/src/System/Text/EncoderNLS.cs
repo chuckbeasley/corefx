@@ -20,7 +20,6 @@ namespace System.Text
     // class are typically obtained through calls to the GetEncoder method
     // of Encoding objects.
     //
-    [Serializable]
     internal class EncoderNLS : Encoder, ISerializable
     {
         // Need a place for the last left over character, most of our encodings use this
@@ -43,59 +42,9 @@ namespace System.Text
 
         void ISerializable.GetObjectData(SerializationInfo info, StreamingContext context)
         {
-            info.AddValue(EncoderNLSSurrogate.EncodingKey, m_encoding);
-            info.AddValue(EncoderNLSSurrogate.DecoderFallbackKey, m_fallback);
-            info.AddValue(EncoderNLSSurrogate.CharLeftOverKey, charLeftOver);
-            info.SetType(typeof(EncoderNLSSurrogate));
+            throw new PlatformNotSupportedException();
         }
-
-        [Serializable]
-        internal sealed class EncoderNLSSurrogate : ISerializable, IObjectReference
-        {
-            internal const string EncodingKey = "Encoding";
-            internal const string DecoderFallbackKey = "EncoderFallback";
-            internal const string CharLeftOverKey = "CharLeftOver";
-
-            private readonly Encoding _encoding;
-            private readonly EncoderFallback _fallback;
-            private char _charLeftOver;
-
-            internal EncoderNLSSurrogate(SerializationInfo info, StreamingContext context)
-            {
-                if (info == null)
-                {
-                    throw new ArgumentNullException(nameof(info));
-                }
-                _encoding = (Encoding)info.GetValue(EncodingKey, typeof(Encoding));
-                _fallback = (EncoderFallback)info.GetValue(DecoderFallbackKey, typeof(EncoderFallback));
-                _charLeftOver = (char)info.GetValue(CharLeftOverKey, typeof(char));
-            }
-
-            public object GetRealObject(StreamingContext context)
-            {
-                Encoder encoder = _encoding.GetEncoder();
-                if (_fallback != null)
-                {
-                    encoder.Fallback = _fallback;
-                    if (_charLeftOver != default(char))
-                    {
-                        EncoderNLS encoderNls = encoder as EncoderNLS;
-                        if (encoderNls != null)
-                        {
-                            encoderNls.charLeftOver = _charLeftOver;
-                        }
-                    }
-                }
-                return encoder;
-            }
-
-            public void GetObjectData(SerializationInfo info, StreamingContext context)
-            {
-                // This should never be called.  If it is, there's a bug in the formatter being used.
-                throw new NotSupportedException();
-            }
-        }
-
+        
         internal new EncoderFallback Fallback
         {
             get { return m_fallback; }
@@ -139,7 +88,6 @@ namespace System.Text
                 m_fallbackBuffer.Reset();
         }
 
-        [System.Security.SecuritySafeCritical]  // auto-generated
         public override unsafe int GetByteCount(char[] chars, int index, int count, bool flush)
         {
             // Validate input parameters
@@ -166,7 +114,6 @@ namespace System.Text
             return result;
         }
 
-        [System.Security.SecurityCritical]  // auto-generated
         public override unsafe int GetByteCount(char* chars, int count, bool flush)
         {
             // Validate input parameters
@@ -182,7 +129,6 @@ namespace System.Text
             return m_encoding.GetByteCount(chars, count, this);
         }
 
-        [System.Security.SecuritySafeCritical]  // auto-generated
         public override unsafe int GetBytes(char[] chars, int charIndex, int charCount,
                                               byte[] bytes, int byteIndex, bool flush)
         {
@@ -216,7 +162,6 @@ namespace System.Text
                                     pBytes + byteIndex, byteCount, flush);
         }
 
-        [System.Security.SecurityCritical]  // auto-generated
         public override unsafe int GetBytes(char* chars, int charCount, byte* bytes, int byteCount, bool flush)
         {
             // Validate parameters
@@ -234,7 +179,6 @@ namespace System.Text
 
         // This method is used when your output buffer might not be large enough for the entire result.
         // Just call the pointer version.  (This gets bytes)
-        [System.Security.SecuritySafeCritical]  // auto-generated
         public override unsafe void Convert(char[] chars, int charIndex, int charCount,
                                               byte[] bytes, int byteIndex, int byteCount, bool flush,
                                               out int charsUsed, out int bytesUsed, out bool completed)
@@ -276,7 +220,6 @@ namespace System.Text
 
         // This is the version that uses pointers.  We call the base encoding worker function
         // after setting our appropriate internal variables.  This is getting bytes
-        [System.Security.SecurityCritical]  // auto-generated
         public override unsafe void Convert(char* chars, int charCount,
                                               byte* bytes, int byteCount, bool flush,
                                               out int charsUsed, out int bytesUsed, out bool completed)

@@ -12,6 +12,8 @@ namespace System.Xml.Serialization
     using System.ComponentModel;
     using System.Threading;
     using System.Linq;
+    using System.Xml;
+    using System.Xml.Serialization;
 
     /// <include file='doc\SoapReflectionImporter.uex' path='docs/doc[@for="SoapReflectionImporter"]/*' />
     /// <devdoc>
@@ -80,7 +82,8 @@ namespace System.Xml.Serialization
         private void IncludeTypes(ICustomAttributeProvider provider, RecursionLimiter limiter)
         {
             object[] attrs = provider.GetCustomAttributes(typeof(SoapIncludeAttribute), false);
-            for (int i = 0; i < attrs.Length; i++) {
+            for (int i = 0; i < attrs.Length; i++)
+            {
                 IncludeType(((SoapIncludeAttribute)attrs[i]).Type, limiter);
             }
         }
@@ -218,7 +221,7 @@ namespace System.Xml.Serialization
 
             SoapAttributes a = GetAttributes(model.Type);
 
-            if ((a.SoapFlags & ~SoapAttributeFlags.Type) != 0)
+            if ((a.GetSoapFlags() & ~SoapAttributeFlags.Type) != 0)
                 throw new InvalidOperationException(SR.Format(SR.XmlInvalidTypeAttributes, model.Type.FullName));
 
             switch (model.TypeDesc.Kind)
@@ -624,7 +627,7 @@ namespace System.Xml.Serialization
         {
             SoapAttributes a = GetAttributes(model.FieldInfo);
             if (a.SoapIgnore) return null;
-            if ((a.SoapFlags & ~SoapAttributeFlags.Enum) != 0)
+            if ((a.GetSoapFlags() & ~SoapAttributeFlags.Enum) != 0)
                 throw new InvalidOperationException(SR.XmlInvalidEnumAttribute);
             if (a.SoapEnum == null)
                 a.SoapEnum = new SoapEnumAttribute();
@@ -720,7 +723,7 @@ namespace System.Xml.Serialization
                 throw new InvalidOperationException(SR.XmlInvalidVoid);
             }
 
-            SoapAttributeFlags flags = a.SoapFlags;
+            SoapAttributeFlags flags = a.GetSoapFlags();
             if ((flags & SoapAttributeFlags.Attribute) == SoapAttributeFlags.Attribute)
             {
                 if (!accessor.TypeDesc.IsPrimitive && !accessor.TypeDesc.IsEnum)

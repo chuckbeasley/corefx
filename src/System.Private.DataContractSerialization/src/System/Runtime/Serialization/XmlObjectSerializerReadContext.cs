@@ -67,6 +67,12 @@ namespace System.Runtime.Serialization
             _isGetOnlyCollection = true;
         }
 
+        internal void ResetCollectionMemberInfo()
+        {
+            _getOnlyCollectionValue = null;
+            _isGetOnlyCollection = false;
+        }
+
 #if USE_REFEMIT
         public static void ThrowNullValueReturnedForGetOnlyCollectionException(Type type)
 #else
@@ -177,6 +183,23 @@ namespace System.Runtime.Serialization
                     throw DiagnosticUtility.ExceptionUtility.ThrowHelperError(XmlObjectSerializer.CreateSerializationException(XmlObjectSerializer.TryAddLineInfo(reader, SR.Format(SR.DcTypeNotResolvedOnDeserialize, attributes.XsiTypeNamespace, attributes.XsiTypeName, reader.NamespaceURI, reader.LocalName))));
                 }
                 knownTypesAddedInCurrentScope = ReplaceScopedKnownTypesTop(dataContract.KnownDataContracts, knownTypesAddedInCurrentScope);
+            }
+
+            if (dataContract.IsISerializable && attributes.FactoryTypeName != null)
+            {
+                DataContract factoryDataContract = ResolveDataContractFromKnownTypes(attributes.FactoryTypeName, attributes.FactoryTypeNamespace, dataContract);
+                if (factoryDataContract != null)
+                {
+                    if (factoryDataContract.IsISerializable)
+                    {
+                        dataContract = factoryDataContract;
+                        knownTypesAddedInCurrentScope = ReplaceScopedKnownTypesTop(dataContract.KnownDataContracts, knownTypesAddedInCurrentScope);
+                    }
+                    else
+                    {
+                        throw DiagnosticUtility.ExceptionUtility.ThrowHelperError(XmlObjectSerializer.CreateSerializationException(SR.Format(SR.FactoryTypeNotISerializable, DataContract.GetClrTypeFullName(factoryDataContract.UnderlyingType), DataContract.GetClrTypeFullName(dataContract.UnderlyingType))));
+                    }
+                }
             }
 
             if (knownTypesAddedInCurrentScope)
@@ -457,6 +480,20 @@ namespace System.Runtime.Serialization
             return retObj;
         }
 
+        public object GetRealObject(IObjectReference obj, string id)
+        {
+            object realObj = SurrogateDataContract.GetRealObject(obj, this.GetStreamingContext());
+            // If GetRealObject returns null, it indicates that the object could not resolve itself because 
+            // it is missing information. This may occur in a case where multiple IObjectReference instances
+            // depend on each other. BinaryFormatter supports this by fixing up the references later. These
+            // XmlObjectSerializer implementations do not support fix-ups since the format does not contain
+            // forward references. However, we throw for this case since it allows us to add fix-up support 
+            // in the future if we need to.
+            if (realObj == null)
+                throw DiagnosticUtility.ExceptionUtility.ThrowHelperError(XmlObjectSerializer.CreateSerializationException("error"));
+            ReplaceDeserializedObject(id, obj, realObj);
+            return realObj;
+        }
 
 #if USE_REFEMIT
         public static void Read(XmlReaderDelegator xmlReader)

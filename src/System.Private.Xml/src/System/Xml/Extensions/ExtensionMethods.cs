@@ -14,47 +14,6 @@ namespace System.Xml.Extensions
 {
     internal static class ExtensionMethods
     {
-        internal static void CopyTo(this Dictionary<object, object>.ValueCollection source, Array a, int index)
-        {
-            int arrayIndex = index;
-            foreach (object value in source)
-            {
-                a.SetValue(value, arrayIndex++);
-            }
-        }
-
-        internal static bool Contains(this Dictionary<object, object> source, object a)
-        {
-            return source.ContainsKey(a);
-        }
-
-        internal static string ReadElementString(this XmlReader source)
-        {
-            return source.ReadElementContentAsString();
-        }
-
-        internal static string ReadString(this XmlReader source)
-        {
-            // Note: maintain behavior from \ndp\fx\src\Xml\System\Xml\Core\XmlReader.cs
-            source.MoveToElement();
-            if (source.NodeType == XmlNodeType.Element)
-            {
-                if (source.IsEmptyElement)
-                {
-                    return string.Empty;
-                }
-                else if (!source.Read())
-                {
-                    throw new InvalidOperationException(SR.Xml_InvalidOperation);
-                }
-                if (source.NodeType == XmlNodeType.EndElement)
-                {
-                    return string.Empty;
-                }
-            }
-            return source.ReadContentAsString();
-        }
-
         #region Contract compliance for System.Type
 
         private static bool TypeSequenceEqual(Type[] seq1, Type[] seq2)
@@ -81,37 +40,15 @@ namespace System.Xml.Extensions
 
         internal static ConstructorInfo GetConstructor(this Type type, BindingFlags bindingFlags, Type[] parameterTypes)
         {
-            var constructorInfos = type.GetConstructors(bindingFlags);
-            var constructorInfo = FilterMethodBases(constructorInfos.Cast<MethodBase>().ToArray(), parameterTypes, ".ctor");
-            return constructorInfo != null ? (ConstructorInfo)constructorInfo : null;
+            return type.GetConstructor(bindingFlags, null, parameterTypes, null);
         }
 
         internal static MethodInfo GetMethod(this Type type, string methodName, BindingFlags bindingFlags, Type[] parameterTypes)
         {
-            var methodInfos = type.GetMethods(bindingFlags);
-            var methodInfo = FilterMethodBases(methodInfos.Cast<MethodBase>().ToArray(), parameterTypes, methodName);
-            return methodInfo != null ? (MethodInfo)methodInfo : null;
+            return type.GetMethod(methodName, bindingFlags, null, parameterTypes, null);
         }
 
         #endregion
-
-        internal static string ToBinHexString(byte[] inArray)
-        {
-            if (inArray == null)
-            {
-                throw new ArgumentNullException(nameof(inArray));
-            }
-            return BinHexEncoder.Encode(inArray, 0, inArray.Length);
-        }
-
-        internal static byte[] FromBinHexString(string s, bool allowOddCount)
-        {
-            if (s == null)
-            {
-                throw new ArgumentNullException(nameof(s));
-            }
-            return BinHexDecoder.Decode(s.ToCharArray(), allowOddCount);
-        }
 
         internal static Uri ToUri(string s)
         {

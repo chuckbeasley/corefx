@@ -28,15 +28,15 @@ namespace System.Net.Sockets.Tests
         [InlineData(AddressFamily.Unknown)]
         public void Ctor_InvalidFamily_Throws(AddressFamily family)
         {
-            Assert.Throws<ArgumentException>(() => new TcpClient(family));
+            AssertExtensions.Throws<ArgumentException>("family", () => new TcpClient(family));
         }
 
         [Fact]
         public void Ctor_InvalidArguments_Throws()
         {
-            Assert.Throws<ArgumentNullException>("localEP", () => new TcpClient(null));
-            Assert.Throws<ArgumentNullException>("hostname", () => new TcpClient(null, 0));
-            Assert.Throws<ArgumentOutOfRangeException>("port", () => new TcpClient("localhost", -1));
+            AssertExtensions.Throws<ArgumentNullException>("localEP", () => new TcpClient(null));
+            AssertExtensions.Throws<ArgumentNullException>("hostname", () => new TcpClient(null, 0));
+            AssertExtensions.Throws<ArgumentOutOfRangeException>("port", () => new TcpClient("localhost", -1));
         }
 
         [Fact]
@@ -44,13 +44,13 @@ namespace System.Net.Sockets.Tests
         {
             using (var client = new TcpClient())
             {
-                Assert.Throws<ArgumentNullException>("hostname", () => client.Connect((string)null, 0));
-                Assert.Throws<ArgumentOutOfRangeException>("port", () => client.Connect("localhost", -1));
+                AssertExtensions.Throws<ArgumentNullException>("hostname", () => client.Connect((string)null, 0));
+                AssertExtensions.Throws<ArgumentOutOfRangeException>("port", () => client.Connect("localhost", -1));
 
-                Assert.Throws<ArgumentNullException>("address", () => client.Connect((IPAddress)null, 0));
-                Assert.Throws<ArgumentOutOfRangeException>("port", () => client.Connect(IPAddress.Loopback, -1));
+                AssertExtensions.Throws<ArgumentNullException>("address", () => client.Connect((IPAddress)null, 0));
+                AssertExtensions.Throws<ArgumentOutOfRangeException>("port", () => client.Connect(IPAddress.Loopback, -1));
 
-                Assert.Throws<ArgumentNullException>("remoteEP", () => client.Connect(null));
+                AssertExtensions.Throws<ArgumentNullException>("remoteEP", () => client.Connect(null));
             }
         }
 
@@ -234,6 +234,7 @@ namespace System.Net.Sockets.Tests
             }
         }
 
+        [SkipOnTargetFramework(TargetFrameworkMonikers.NetFramework, "Bug in Connected that dereferences null Client socket")]
         [OuterLoop] // TODO: Issue #11345
         [Fact]
         public void ConnectedAvailable_NullClient()
@@ -247,6 +248,7 @@ namespace System.Net.Sockets.Tests
             }
         }
 
+        [SkipOnTargetFramework(TargetFrameworkMonikers.NetFramework, "Bug in ExclusiveAddressUse that dereferences null Client socket")]
         [OuterLoop] // TODO: Issue #11345
         [Fact]
         public void ExclusiveAddressUse_NullClient()
@@ -270,27 +272,12 @@ namespace System.Net.Sockets.Tests
         }
 
         [Fact]
-        [PlatformSpecific(TestPlatforms.Windows)]  // ExclusiveAddressUse=false only supported on Windows
         public void Roundtrip_ExclusiveAddressUse_GetEqualsSet_False()
         {
             using (TcpClient client = new TcpClient())
             {
                 client.ExclusiveAddressUse = false;
                 Assert.False(client.ExclusiveAddressUse);
-            }
-        }
-
-        [OuterLoop] // TODO: Issue #11345
-        [Fact]
-        [PlatformSpecific(TestPlatforms.AnyUnix)]  // ExclusiveAddressUse=false only supported on Windows
-        public void ExclusiveAddressUse_Set_False_NotSupported()
-        {
-            using (TcpClient client = new TcpClient())
-            {
-                Assert.Throws<SocketException>(() =>
-                {
-                    client.ExclusiveAddressUse = false;
-                });
             }
         }
 
@@ -405,6 +392,7 @@ namespace System.Net.Sockets.Tests
             }
         }
 
+        [SkipOnTargetFramework(TargetFrameworkMonikers.NetFramework, "Bug in TcpClient.Dispose/EndConnect: the former nulls out Client, which the latter tries to use")]
         [OuterLoop] // TODO: Issue #11345
         [Theory]
         [InlineData(false)]

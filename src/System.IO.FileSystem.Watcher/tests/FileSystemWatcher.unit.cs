@@ -97,11 +97,11 @@ namespace System.IO.Tests
             using (var testDirectory = new TempDirectory(GetTestFilePath()))
             {
                 // Null filter
-                Assert.Throws<ArgumentNullException>("filter", () => new FileSystemWatcher(testDirectory.Path, null));
+                AssertExtensions.Throws<ArgumentNullException>("filter", () => new FileSystemWatcher(testDirectory.Path, null));
 
                 // Null path
-                Assert.Throws<ArgumentNullException>("path", () => new FileSystemWatcher(null));
-                Assert.Throws<ArgumentNullException>("path", () => new FileSystemWatcher(null, "*"));
+                AssertExtensions.Throws<ArgumentNullException>("path", () => new FileSystemWatcher(null));
+                AssertExtensions.Throws<ArgumentNullException>("path", () => new FileSystemWatcher(null, "*"));
             }
         }
 
@@ -112,12 +112,12 @@ namespace System.IO.Tests
             using (var testDirectory = new TempDirectory(GetTestFilePath()))
             {
                 // Empty path
-                Assert.Throws<ArgumentException>("path", () => new FileSystemWatcher(string.Empty));
-                Assert.Throws<ArgumentException>("path", () => new FileSystemWatcher(string.Empty, "*"));
+                AssertExtensions.Throws<ArgumentException>("path", () => new FileSystemWatcher(string.Empty));
+                AssertExtensions.Throws<ArgumentException>("path", () => new FileSystemWatcher(string.Empty, "*"));
 
                 // Invalid directory
-                Assert.Throws<ArgumentException>("path", () => new FileSystemWatcher(GetTestFilePath()));
-                Assert.Throws<ArgumentException>("path", () => new FileSystemWatcher(GetTestFilePath(), "*"));
+                AssertExtensions.Throws<ArgumentException>("path", () => new FileSystemWatcher(GetTestFilePath()));
+                AssertExtensions.Throws<ArgumentException>("path", () => new FileSystemWatcher(GetTestFilePath(), "*"));
             }
         }
 
@@ -485,9 +485,9 @@ namespace System.IO.Tests
             }
         }
 
-        [Fact]
+        [Fact]                        
         public void FileSystemWatcher_Path()
-        {
+        {            
             FileSystemWatcher watcher = new FileSystemWatcher();
             Assert.Equal(String.Empty, watcher.Path);
 
@@ -497,8 +497,11 @@ namespace System.IO.Tests
             watcher.Path = ".";
             Assert.Equal(".", watcher.Path);
 
-            watcher.Path = "..";
-            Assert.Equal("..", watcher.Path);
+            if (!PlatformDetection.IsInAppContainer)
+            {
+                watcher.Path = "..";
+                Assert.Equal("..", watcher.Path);
+            }
 
             string currentDir = Path.GetFullPath(".").TrimEnd('.', Path.DirectorySeparatorChar);
             watcher.Path = currentDir;
@@ -524,7 +527,7 @@ namespace System.IO.Tests
             Assert.Equal(currentDirRelative, watcher.Path);
 
             // FSW starts with String.Empty and will ignore setting this if it is already set,
-            // but if you set it after some other valid string has been set it will throw.
+            // but if you set it after some other valid string has been set it will throw.            
             Assert.Throws<ArgumentException>(() => watcher.Path = String.Empty);
             // Non-existent path
             Assert.Throws<ArgumentException>(() => watcher.Path = GetTestFilePath());

@@ -13,46 +13,36 @@ using System.Runtime.Versioning;
 
 namespace System.IO
 {
-    [Serializable]
     public abstract partial class FileSystemInfo : MarshalByRefObject, ISerializable
     {
-        protected String FullPath;          // fully qualified path of the file or directory
-        protected String OriginalPath;      // path passed in by the user
-        private String _displayPath = "";   // path that can be displayed to the user
+        protected string FullPath;          // fully qualified path of the file or directory
+        protected string OriginalPath;      // path passed in by the user
+        private string _displayPath = "";   // path that can be displayed to the user
 
-        [System.Security.SecurityCritical]
         protected FileSystemInfo()
         {
         }
 
         protected FileSystemInfo(SerializationInfo info, StreamingContext context)
         {
-            if (info == null)
-            {
-                throw new ArgumentNullException(nameof(info));
-            }
-
-            FullPath = Path.GetFullPath(info.GetString(nameof(FullPath)));
-            OriginalPath = info.GetString(nameof(OriginalPath));
+            throw new PlatformNotSupportedException();
         }
 
         public virtual void GetObjectData(SerializationInfo info, StreamingContext context)
         {
-            info.AddValue(nameof(OriginalPath), OriginalPath, typeof(String));
-            info.AddValue(nameof(FullPath), FullPath, typeof(String));
+            throw new PlatformNotSupportedException();
         }
 
         // Full path of the directory/file
-        public virtual String FullName
+        public virtual string FullName
         {
-            [System.Security.SecuritySafeCritical]
             get
             {
                 return FullPath;
             }
         }
 
-        public String Extension
+        public string Extension
         {
             get
             {
@@ -66,13 +56,13 @@ namespace System.IO
                     if (PathInternal.IsDirectorySeparator(ch) || ch == Path.VolumeSeparatorChar)
                         break;
                 }
-                return String.Empty;
+                return string.Empty;
             }
         }
 
         // For files name of the file is returned, for directories the last directory in hierarchy is returned if possible,
         // otherwise the fully qualified name s returned
-        public abstract String Name
+        public abstract string Name
         {
             get;
         }
@@ -101,7 +91,6 @@ namespace System.IO
 
         public DateTime CreationTimeUtc
         {
-            [System.Security.SecuritySafeCritical]
             get
             {
                 return FileSystemObject.CreationTime.UtcDateTime;
@@ -129,7 +118,6 @@ namespace System.IO
 
         public DateTime LastAccessTimeUtc
         {
-            [System.Security.SecuritySafeCritical]
             get
             {
                 return FileSystemObject.LastAccessTime.UtcDateTime;
@@ -157,7 +145,6 @@ namespace System.IO
 
         public DateTime LastWriteTimeUtc
         {
-            [System.Security.SecuritySafeCritical]
             get
             {
                 return FileSystemObject.LastWriteTime.UtcDateTime;
@@ -176,19 +163,17 @@ namespace System.IO
 
         public FileAttributes Attributes
         {
-            [System.Security.SecuritySafeCritical]
             get
             {
                 return FileSystemObject.Attributes;
             }
-            [System.Security.SecurityCritical] // auto-generated
             set
             {
                 FileSystemObject.Attributes = value;
             }
         }
 
-        internal String DisplayPath
+        internal string DisplayPath
         {
             get
             {

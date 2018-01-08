@@ -5,8 +5,6 @@
 using System.Collections.Generic;
 using System.Linq;
 
-using Xunit;
-
 #pragma warning disable 0809  //warning CS0809: Obsolete member overrides non-obsolete member
 
 namespace System
@@ -15,7 +13,7 @@ namespace System
     internal struct TInt : IEquatable<TInt>
     {
         public TInt(int value)
-            : this(value, (Action<int,int>)null)
+            : this(value, (Action<int, int>)null)
         {
             // This constructor does not report comparisons but is still useful for catching uses of the boxing Equals().
         }

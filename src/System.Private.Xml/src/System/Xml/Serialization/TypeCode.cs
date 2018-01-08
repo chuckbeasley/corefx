@@ -4,6 +4,8 @@
 
 namespace System.Xml.Serialization
 {
+    using System;
+
     internal enum TypeCode
     {
         Empty = 0,          // Null reference

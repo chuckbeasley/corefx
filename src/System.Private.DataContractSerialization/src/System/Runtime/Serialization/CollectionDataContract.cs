@@ -109,7 +109,7 @@ namespace System.Runtime.Serialization
             get { return _key; }
             set { _key = (K)value; }
         }
-        
+
         object IKeyValue.Value
         {
             get { return _value; }
@@ -142,9 +142,9 @@ namespace System.Runtime.Serialization
 #endif
     {
         private XmlDictionaryString _collectionItemName;
-        
+
         private XmlDictionaryString _childElementNamespace;
-        
+
         private DataContract _itemContract;
 
         private CollectionDataContractCriticalHelper _helper;
@@ -286,6 +286,12 @@ namespace System.Runtime.Serialization
                 }
                 return _childElementNamespace;
             }
+        }
+
+        internal bool IsItemTypeNullable
+        {
+            get { return _helper.IsItemTypeNullable; }
+            set { _helper.IsItemTypeNullable = value; }
         }
 
         internal bool IsConstructorCheckRequired
@@ -432,7 +438,12 @@ namespace System.Runtime.Serialization
                             {
                                 throw DiagnosticUtility.ExceptionUtility.ThrowHelperError(new InvalidDataContractException(SR.Format(SR.GetOnlyCollectionMustHaveAddMethod, GetClrTypeFullName(UnderlyingType))));
                             }
-                            Debug.Assert(AddMethod != null || Kind == CollectionKind.Array, "Add method cannot be null if the collection is being used as a get-only property");
+
+                            if (Kind != CollectionKind.Array && AddMethod == null)
+                            {
+                                throw DiagnosticUtility.ExceptionUtility.ThrowHelperError(new InvalidDataContractException(SR.Format(SR.GetOnlyCollectionMustHaveAddMethod, GetClrTypeFullName(UnderlyingType))));
+                            }
+
                             XmlFormatGetOnlyCollectionReaderDelegate tempDelegate = new XmlFormatReaderGenerator().GenerateGetOnlyCollectionReader(this);
                             Interlocked.MemoryBarrier();
                             _helper.XmlFormatGetOnlyCollectionReaderDelegate = tempDelegate;
@@ -454,9 +465,14 @@ namespace System.Runtime.Serialization
             _helper.IncrementCollectionCount(xmlWriter, obj, context);
         }
 
-        internal IEnumerator GetEnumeratorForCollection(object obj, out Type enumeratorReturnType)
+        internal IEnumerator GetEnumeratorForCollection(object obj)
         {
-            return _helper.GetEnumeratorForCollection(obj, out enumeratorReturnType);
+            return _helper.GetEnumeratorForCollection(obj);
+        }
+
+        internal Type GetCollectionElementType()
+        {
+            return _helper.GetCollectionElementType();
         }
 
         private class CollectionDataContractCriticalHelper : DataContract.DataContractCriticalHelper
@@ -464,6 +480,7 @@ namespace System.Runtime.Serialization
             private static Type[] s_knownInterfaces;
 
             private Type _itemType;
+            private bool _isItemTypeNullable;
             private CollectionKind _kind;
             private readonly MethodInfo _getEnumeratorMethod, _addMethod;
             private readonly ConstructorInfo _constructor;
@@ -512,6 +529,7 @@ namespace System.Runtime.Serialization
                 if (itemType != null)
                 {
                     _itemType = itemType;
+                    _isItemTypeNullable = DataContract.IsTypeNullable(itemType);
 
                     bool isDictionary = (kind == CollectionKind.Dictionary || kind == CollectionKind.GenericDictionary);
                     string itemName = null, keyName = null, valueName = null;
@@ -697,6 +715,12 @@ namespace System.Runtime.Serialization
                 set { _childElementNamespace = value; }
             }
 
+            internal bool IsItemTypeNullable
+            {
+                get { return _isItemTypeNullable; }
+                set { _isItemTypeNullable = value; }
+            }
+
             internal MethodInfo GetEnumeratorMethod => _getEnumeratorMethod;
 
             internal MethodInfo AddMethod => _addMethod;
@@ -766,20 +790,20 @@ namespace System.Runtime.Serialization
                             {
                                 _incrementCollectionCountDelegate = (x, o, c) =>
                                 {
-                                    context.IncrementCollectionCount(x, (ICollection)o);
+                                    c.IncrementCollectionCount(x, (ICollection)o);
                                 };
                             }
                             break;
                         case CollectionKind.GenericCollection:
                         case CollectionKind.GenericList:
                             {
-                                var buildIncrementCollectionCountDelegate = s_buildIncrementCollectionCountDelegateMethod.MakeGenericMethod(ItemType);
+                                var buildIncrementCollectionCountDelegate = BuildIncrementCollectionCountDelegateMethod.MakeGenericMethod(ItemType);
                                 _incrementCollectionCountDelegate = (IncrementCollectionCountDelegate)buildIncrementCollectionCountDelegate.Invoke(null, Array.Empty<object>());
                             }
                             break;
                         case CollectionKind.GenericDictionary:
                             {
-                                var buildIncrementCollectionCountDelegate = s_buildIncrementCollectionCountDelegateMethod.MakeGenericMethod(Globals.TypeOfKeyValuePair.MakeGenericType(ItemType.GetGenericArguments()));
+                                var buildIncrementCollectionCountDelegate = BuildIncrementCollectionCountDelegateMethod.MakeGenericMethod(Globals.TypeOfKeyValuePair.MakeGenericType(ItemType.GetGenericArguments()));
                                 _incrementCollectionCountDelegate = (IncrementCollectionCountDelegate)buildIncrementCollectionCountDelegate.Invoke(null, Array.Empty<object>());
                             }
                             break;
@@ -793,14 +817,27 @@ namespace System.Runtime.Serialization
                 _incrementCollectionCountDelegate(xmlWriter, obj, context);
             }
 
-            private static MethodInfo s_buildIncrementCollectionCountDelegateMethod = typeof(CollectionDataContractCriticalHelper).GetMethod(nameof(BuildIncrementCollectionCountDelegate), Globals.ScanAllMembers);
+            private static MethodInfo s_buildIncrementCollectionCountDelegateMethod;
+
+            private static MethodInfo BuildIncrementCollectionCountDelegateMethod
+            {
+                get
+                {
+                    if (s_buildIncrementCollectionCountDelegateMethod == null)
+                    {
+                        s_buildIncrementCollectionCountDelegateMethod = typeof(CollectionDataContractCriticalHelper).GetMethod(nameof(BuildIncrementCollectionCountDelegate), Globals.ScanAllMembers);
+                    }
+
+                    return s_buildIncrementCollectionCountDelegateMethod;
+                }
+            }
 
             private static IncrementCollectionCountDelegate BuildIncrementCollectionCountDelegate<T>()
             {
                 return (xmlwriter, obj, context) =>
                 {
                     context.IncrementCollectionCountGeneric<T>(xmlwriter, (ICollection<T>)obj);
-    
+
                 };
             }
 
@@ -808,7 +845,7 @@ namespace System.Runtime.Serialization
 
             private CreateGenericDictionaryEnumeratorDelegate _createGenericDictionaryEnumeratorDelegate;
 
-            internal IEnumerator GetEnumeratorForCollection(object obj, out Type enumeratorReturnType)
+            internal IEnumerator GetEnumeratorForCollection(object obj)
             {
                 IEnumerator enumerator = ((IEnumerable)obj).GetEnumerator();
                 if (Kind == CollectionKind.GenericDictionary)
@@ -816,69 +853,85 @@ namespace System.Runtime.Serialization
                     if (_createGenericDictionaryEnumeratorDelegate == null)
                     {
                         var keyValueTypes = ItemType.GetGenericArguments();
-                        var buildCreateGenericDictionaryEnumerator = s_buildCreateGenericDictionaryEnumerator.MakeGenericMethod(keyValueTypes[0], keyValueTypes[1]);
+                        var buildCreateGenericDictionaryEnumerator = BuildCreateGenericDictionaryEnumerato.MakeGenericMethod(keyValueTypes[0], keyValueTypes[1]);
                         _createGenericDictionaryEnumeratorDelegate = (CreateGenericDictionaryEnumeratorDelegate)buildCreateGenericDictionaryEnumerator.Invoke(null, Array.Empty<object>());
                     }
 
-                    enumerator = _createGenericDictionaryEnumeratorDelegate(enumerator);                                       
+                    enumerator = _createGenericDictionaryEnumeratorDelegate(enumerator);
                 }
                 else if (Kind == CollectionKind.Dictionary)
                 {
                     enumerator = new DictionaryEnumerator(((IDictionary)obj).GetEnumerator());
                 }
 
-                enumeratorReturnType = EnumeratorReturnType;
-
                 return enumerator;
             }
 
-            private Type _enumeratorReturnType;
-
-            public Type EnumeratorReturnType
+            internal Type GetCollectionElementType()
             {
-                get
-                {
-                    _enumeratorReturnType = _enumeratorReturnType ?? GetCollectionEnumeratorReturnType();
-                    return _enumeratorReturnType;
-                }
-            }
-
-            private Type GetCollectionEnumeratorReturnType()
-            {
-                Type enumeratorReturnType;
+                Type enumeratorType = null;
                 if (Kind == CollectionKind.GenericDictionary)
                 {
-                    var keyValueTypes = ItemType.GetGenericArguments();
-                    enumeratorReturnType =  Globals.TypeOfKeyValue.MakeGenericType(keyValueTypes);
+                    Type[] keyValueTypes = ItemType.GetGenericArguments();
+                    enumeratorType = Globals.TypeOfGenericDictionaryEnumerator.MakeGenericType(keyValueTypes);
                 }
                 else if (Kind == CollectionKind.Dictionary)
                 {
-
-                    enumeratorReturnType = Globals.TypeOfObject;
-                }
-                else if (Kind == CollectionKind.GenericCollection
-                      || Kind == CollectionKind.GenericList)
-                {
-                    enumeratorReturnType = ItemType;
+                    enumeratorType = Globals.TypeOfDictionaryEnumerator;
                 }
                 else
                 {
-                    var enumeratorType = GetEnumeratorMethod.ReturnType;
-                    if (enumeratorType.IsGenericType)
+                    enumeratorType = GetEnumeratorMethod.ReturnType;
+                }
+
+                MethodInfo getCurrentMethod = enumeratorType.GetMethod(Globals.GetCurrentMethodName, BindingFlags.Instance | BindingFlags.Public, Array.Empty<Type>());
+                if (getCurrentMethod == null)
+                {
+                    if (enumeratorType.IsInterface)
                     {
-                        MethodInfo getCurrentMethod = enumeratorType.GetMethod(Globals.GetCurrentMethodName, BindingFlags.Instance | BindingFlags.Public, Array.Empty<Type>());
-                        enumeratorReturnType = getCurrentMethod.ReturnType;
+                        getCurrentMethod = XmlFormatGeneratorStatics.GetCurrentMethod;
                     }
                     else
                     {
-                        enumeratorReturnType = Globals.TypeOfObject;
+                        Type ienumeratorInterface = Globals.TypeOfIEnumerator;
+                        if (Kind == CollectionKind.GenericDictionary || Kind == CollectionKind.GenericCollection || Kind == CollectionKind.GenericEnumerable)
+                        {
+                            Type[] interfaceTypes = enumeratorType.GetInterfaces();
+                            foreach (Type interfaceType in interfaceTypes)
+                            {
+                                if (interfaceType.IsGenericType
+                                    && interfaceType.GetGenericTypeDefinition() == Globals.TypeOfIEnumeratorGeneric
+                                    && interfaceType.GetGenericArguments()[0] == ItemType)
+                                {
+                                    ienumeratorInterface = interfaceType;
+                                    break;
+                                }
+                            }
+                        }
+
+                        getCurrentMethod = GetTargetMethodWithName(Globals.GetCurrentMethodName, enumeratorType, ienumeratorInterface);
                     }
                 }
 
-                return enumeratorReturnType;
+                Type elementType = getCurrentMethod.ReturnType;
+                return elementType;
             }
 
-            private static MethodInfo s_buildCreateGenericDictionaryEnumerator = typeof(CollectionDataContractCriticalHelper).GetMethod(nameof(BuildCreateGenericDictionaryEnumerator), Globals.ScanAllMembers);
+            private static MethodInfo s_buildCreateGenericDictionaryEnumerator;
+
+            private static MethodInfo BuildCreateGenericDictionaryEnumerato
+            {
+                get
+                {
+                    if (s_buildCreateGenericDictionaryEnumerator == null)
+                    {
+                        s_buildCreateGenericDictionaryEnumerator = typeof(CollectionDataContractCriticalHelper).GetMethod(nameof(BuildCreateGenericDictionaryEnumerator), Globals.ScanAllMembers);
+                    }
+
+                    return s_buildCreateGenericDictionaryEnumerator;
+                }
+            }
+
             private static CreateGenericDictionaryEnumeratorDelegate BuildCreateGenericDictionaryEnumerator<K, V>()
             {
                 return (enumerator) =>
@@ -989,9 +1042,7 @@ namespace System.Runtime.Serialization
         internal static MethodInfo GetTargetMethodWithName(string name, Type type, Type interfaceType)
         {
             Type t = type.GetInterfaces().Where(it => it.Equals(interfaceType)).FirstOrDefault();
-            if (t == null)
-                return null;
-            return t.GetMethod(name);
+            return t?.GetMethod(name);
         }
 
         private static bool IsArraySegment(Type t)
@@ -1248,6 +1299,10 @@ namespace System.Runtime.Serialization
                     if (addMethod == null)
                     {
                         Type[] parentInterfaceTypes = interfaceType.GetInterfaces();
+                        // The for loop below depeneds on the order for the items in parentInterfaceTypes, which
+                        // doesnt' seem right. But it's the behavior of DCS on the full framework.
+                        // Sorting the array to make sure the behavior is consistent with Desktop's.
+                        Array.Sort(parentInterfaceTypes, (x, y) => string.Compare(x.FullName, y.FullName));
                         foreach (Type parentInterfaceType in parentInterfaceTypes)
                         {
                             if (IsKnownInterface(parentInterfaceType))

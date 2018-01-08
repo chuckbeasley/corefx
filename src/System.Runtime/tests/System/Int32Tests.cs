@@ -8,7 +8,7 @@ using Xunit;
 
 namespace System.Tests
 {
-    public static class Int32Tests
+    public partial class Int32Tests
     {
         [Fact]
         public static void Ctor_Empty()
@@ -48,22 +48,22 @@ namespace System.Tests
         [InlineData(-234, 234, -1)]
         [InlineData(-234, -432, 1)]
         [InlineData(234, null, 1)]
-        public static void CompareTo(int i, object value, int expected)
+        public void CompareTo_Other_ReturnsExpected(int i, object value, int expected)
         {
-            if (value is int)
+            if (value is int intValue)
             {
-                Assert.Equal(expected, Math.Sign(i.CompareTo((int)value)));
+                Assert.Equal(expected, Math.Sign(i.CompareTo(intValue)));
             }
-            IComparable comparable = i;
-            Assert.Equal(expected, Math.Sign(comparable.CompareTo(value)));
+
+            Assert.Equal(expected, Math.Sign(i.CompareTo(value)));
         }
 
-        [Fact]
-        public static void CompareTo_ObjectNotInt_ThrowsArgumentException()
+        [Theory]
+        [InlineData("a")]
+        [InlineData((long)234)]
+        public void CompareTo_ObjectNotInt_ThrowsArgumentException(object value)
         {
-            IComparable comparable = 234;
-            Assert.Throws<ArgumentException>(null, () => comparable.CompareTo("a")); // Obj is not an int
-            Assert.Throws<ArgumentException>(null, () => comparable.CompareTo((long)234)); // Obj is not an int
+            AssertExtensions.Throws<ArgumentException>(null, () => 123.CompareTo(value));
         }
 
         [Theory]
@@ -87,24 +87,50 @@ namespace System.Tests
             Assert.Equal(expected, i1.Equals(obj));
         }
 
+        [Fact]
+        public void GetTypeCode_Invoke_ReturnsInt32()
+        {
+            Assert.Equal(TypeCode.Int32, 1.GetTypeCode());
+        }
+
         public static IEnumerable<object[]> ToString_TestData()
         {
-            NumberFormatInfo emptyFormat = NumberFormatInfo.CurrentInfo;
-            yield return new object[] { int.MinValue, "G", emptyFormat, "-2147483648" };
-            yield return new object[] { -4567, "G", emptyFormat, "-4567" };
-            yield return new object[] { 0, "G", emptyFormat, "0" };
-            yield return new object[] { 4567, "G", emptyFormat, "4567" };
-            yield return new object[] { int.MaxValue, "G", emptyFormat, "2147483647" };
+            foreach (NumberFormatInfo defaultFormat in new[] { null, NumberFormatInfo.CurrentInfo })
+            {
+                foreach (string defaultSpecifier in new[] { "G", "G\0", "\0N222", "\0", "" })
+                {
+                    yield return new object[] { int.MinValue, defaultSpecifier, defaultFormat, "-2147483648" };
+                    yield return new object[] { -4567, defaultSpecifier, defaultFormat, "-4567" };
+                    yield return new object[] { 0, defaultSpecifier, defaultFormat, "0" };
+                    yield return new object[] { 4567, defaultSpecifier, defaultFormat, "4567" };
+                    yield return new object[] { int.MaxValue, defaultSpecifier, defaultFormat, "2147483647" };
+                }
 
-            yield return new object[] { 0x2468, "x", emptyFormat, "2468" };
-            yield return new object[] { 2468, "N", emptyFormat, string.Format("{0:N}", 2468.00) };
+                yield return new object[] { 4567, "D", defaultFormat, "4567" };
+                yield return new object[] { 4567, "D99", defaultFormat, "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004567" };
+                yield return new object[] { 4567, "D99\09", defaultFormat, "000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000004567" };
 
-            NumberFormatInfo customFormat = new NumberFormatInfo();
-            customFormat.NegativeSign = "#";
-            customFormat.NumberDecimalSeparator = "~";
-            customFormat.NumberGroupSeparator = "*";
+                yield return new object[] { 0x2468, "x", defaultFormat, "2468" };
+                yield return new object[] { 2468, "N", defaultFormat, string.Format("{0:N}", 2468.00) };
+            }
+
+            var customFormat = new NumberFormatInfo()
+            {
+                NegativeSign = "#",
+                NumberDecimalSeparator = "~",
+                NumberGroupSeparator = "*",
+                PositiveSign = "&",
+                NumberDecimalDigits = 2,
+                PercentSymbol = "@",
+                PercentGroupSeparator = ",",
+                PercentDecimalSeparator = ".",
+                PercentDecimalDigits = 5
+            };
             yield return new object[] { -2468, "N", customFormat, "#2*468~00" };
             yield return new object[] { 2468, "N", customFormat, "2*468~00" };
+            yield return new object[] { 123, "E", customFormat, "1~230000E&002" };
+            yield return new object[] { 123, "F", customFormat, "123~00" };
+            yield return new object[] { 123, "P", customFormat, "12,300.00000 @" };
         }
 
         [Theory]
@@ -475,16 +501,16 @@ namespace System.Tests
         }
 
         [Theory]
-        [InlineData(NumberStyles.HexNumber | NumberStyles.AllowParentheses)]
-        [InlineData(unchecked((NumberStyles)0xFFFFFC00))]
-        public static void TryParse_InvalidNumberStyle_ThrowsArgumentException(NumberStyles style)
+        [InlineData(NumberStyles.HexNumber | NumberStyles.AllowParentheses, null)]
+        [InlineData(unchecked((NumberStyles)0xFFFFFC00), "style")]
+        public static void TryParse_InvalidNumberStyle_ThrowsArgumentException(NumberStyles style, string paramName)
         {
             int result = 0;
-            Assert.Throws<ArgumentException>(() => int.TryParse("1", style, null, out result));
+            AssertExtensions.Throws<ArgumentException>(paramName, () => int.TryParse("1", style, null, out result));
             Assert.Equal(default(int), result);
 
-            Assert.Throws<ArgumentException>(() => int.Parse("1", style));
-            Assert.Throws<ArgumentException>(() => int.Parse("1", style, null));
+            AssertExtensions.Throws<ArgumentException>(paramName, () => int.Parse("1", style));
+            AssertExtensions.Throws<ArgumentException>(paramName, () => int.Parse("1", style, null));
         }
     }
 }

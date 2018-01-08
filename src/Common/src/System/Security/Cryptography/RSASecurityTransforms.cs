@@ -53,8 +53,8 @@ namespace System.Security.Cryptography
                     {
                         // All values are in bits.
                         // 1024 was achieved via experimentation.
-                        // 1024 and 1024+64 both generated successfully, 1024-64 produced errSecParam.
-                        new KeySizes(minSize: 1024, maxSize: 16384, skipSize: 64),
+                        // 1024 and 1024+8 both generated successfully, 1024-8 produced errSecParam.
+                        new KeySizes(minSize: 1024, maxSize: 16384, skipSize: 8),
                     };
                 }
             }
@@ -157,11 +157,39 @@ namespace System.Security.Cryptography
 
             public override byte[] Encrypt(byte[] data, RSAEncryptionPadding padding)
             {
+                if (data == null)
+                {
+                    throw new ArgumentNullException(nameof(data));
+                }
+                if (padding == null)
+                {
+                    throw new ArgumentNullException(nameof(padding));
+                }
+
                 return Interop.AppleCrypto.RsaEncrypt(GetKeys().PublicKey, data, padding);
+            }
+
+            public override bool TryEncrypt(ReadOnlySpan<byte> source, Span<byte> destination, RSAEncryptionPadding padding, out int bytesWritten)
+            {
+                if (padding == null)
+                {
+                    throw new ArgumentNullException(nameof(padding));
+                }
+
+                return Interop.AppleCrypto.TryRsaEncrypt(GetKeys().PublicKey, source, destination, padding, out bytesWritten);
             }
 
             public override byte[] Decrypt(byte[] data, RSAEncryptionPadding padding)
             {
+                if (data == null)
+                {
+                    throw new ArgumentNullException(nameof(data));
+                }
+                if (padding == null)
+                {
+                    throw new ArgumentNullException(nameof(padding));
+                }
+
                 SecKeyPair keys = GetKeys();
 
                 if (keys.PrivateKey == null)
@@ -172,8 +200,31 @@ namespace System.Security.Cryptography
                 return Interop.AppleCrypto.RsaDecrypt(keys.PrivateKey, data, padding);
             }
 
+            public override bool TryDecrypt(ReadOnlySpan<byte> source, Span<byte> destination, RSAEncryptionPadding padding, out int bytesWritten)
+            {
+                if (padding == null)
+                {
+                    throw new ArgumentNullException(nameof(padding));
+                }
+
+                SecKeyPair keys = GetKeys();
+
+                if (keys.PrivateKey == null)
+                {
+                    throw new CryptographicException(SR.Cryptography_CSP_NoPrivateKey);
+                }
+
+                return Interop.AppleCrypto.TryRsaDecrypt(keys.PrivateKey, source, destination, padding, out bytesWritten);
+            }
+
             public override byte[] SignHash(byte[] hash, HashAlgorithmName hashAlgorithm, RSASignaturePadding padding)
             {
+                if (hash == null)
+                    throw new ArgumentNullException(nameof(hash));
+                if (string.IsNullOrEmpty(hashAlgorithm.Name))
+                    throw HashAlgorithmNameNullOrEmpty();
+                if (padding == null)
+                    throw new ArgumentNullException(nameof(padding));
                 if (padding != RSASignaturePadding.Pkcs1)
                     throw new CryptographicException(SR.Cryptography_InvalidPaddingMode);
 
@@ -184,10 +235,64 @@ namespace System.Security.Cryptography
                     throw new CryptographicException(SR.Cryptography_CSP_NoPrivateKey);
                 }
 
+                int expectedSize;
+                Interop.AppleCrypto.PAL_HashAlgorithm palAlgId =
+                    PalAlgorithmFromAlgorithmName(hashAlgorithm, out expectedSize);
+
+                if (hash.Length != expectedSize)
+                {
+                    // Windows: NTE_BAD_DATA ("Bad Data.")
+                    // OpenSSL: RSA_R_INVALID_MESSAGE_LENGTH ("invalid message length")
+                    throw new CryptographicException(
+                        SR.Format(
+                            SR.Cryptography_BadHashSize_ForAlgorithm,
+                            hash.Length,
+                            expectedSize,
+                            hashAlgorithm.Name));
+                }
+
                 return Interop.AppleCrypto.GenerateSignature(
                     keys.PrivateKey,
                     hash,
-                    PalAlgorithmFromAlgorithmName(hashAlgorithm));
+                    palAlgId);
+            }
+
+            public override bool TrySignHash(ReadOnlySpan<byte> source, Span<byte> destination, HashAlgorithmName hashAlgorithm, RSASignaturePadding padding, out int bytesWritten)
+            {
+                if (string.IsNullOrEmpty(hashAlgorithm.Name))
+                {
+                    throw HashAlgorithmNameNullOrEmpty();
+                }
+                if (padding == null)
+                {
+                    throw new ArgumentNullException(nameof(padding));
+                }
+                if (padding != RSASignaturePadding.Pkcs1)
+                {
+                    throw new CryptographicException(SR.Cryptography_InvalidPaddingMode);
+                }
+
+                SecKeyPair keys = GetKeys();
+
+                if (keys.PrivateKey == null)
+                {
+                    throw new CryptographicException(SR.Cryptography_CSP_NoPrivateKey);
+                }
+
+                Interop.AppleCrypto.PAL_HashAlgorithm palAlgId = PalAlgorithmFromAlgorithmName(hashAlgorithm, out int expectedSize);
+                if (source.Length != expectedSize)
+                {
+                    // Windows: NTE_BAD_DATA ("Bad Data.")
+                    // OpenSSL: RSA_R_INVALID_MESSAGE_LENGTH ("invalid message length")
+                    throw new CryptographicException(
+                        SR.Format(
+                            SR.Cryptography_BadHashSize_ForAlgorithm,
+                            source.Length,
+                            expectedSize,
+                            hashAlgorithm.Name));
+                }
+
+                return Interop.AppleCrypto.TryGenerateSignature(keys.PrivateKey, source, destination, palAlgId, out bytesWritten);
             }
 
             public override bool VerifyHash(
@@ -196,25 +301,45 @@ namespace System.Security.Cryptography
                 HashAlgorithmName hashAlgorithm,
                 RSASignaturePadding padding)
             {
+                if (hash == null)
+                {
+                    throw new ArgumentNullException(nameof(hash));
+                }
+                if (signature == null)
+                {
+                    throw new ArgumentNullException(nameof(signature));
+                }
+
+                return VerifyHash((ReadOnlySpan<byte>)hash, (ReadOnlySpan<byte>)signature, hashAlgorithm, padding);
+            }
+
+            public override bool VerifyHash(ReadOnlySpan<byte> hash, ReadOnlySpan<byte> signature, HashAlgorithmName hashAlgorithm, RSASignaturePadding padding)
+            {
+                if (string.IsNullOrEmpty(hashAlgorithm.Name))
+                {
+                    throw HashAlgorithmNameNullOrEmpty();
+                }
+                if (padding == null)
+                {
+                    throw new ArgumentNullException(nameof(padding));
+                }
                 if (padding != RSASignaturePadding.Pkcs1)
+                {
                     throw new CryptographicException(SR.Cryptography_InvalidPaddingMode);
+                }
 
-                return Interop.AppleCrypto.VerifySignature(
-                    GetKeys().PublicKey,
-                    hash,
-                    signature,
-                    PalAlgorithmFromAlgorithmName(hashAlgorithm));
+                Interop.AppleCrypto.PAL_HashAlgorithm palAlgId = PalAlgorithmFromAlgorithmName(hashAlgorithm, out int expectedSize);
+                return Interop.AppleCrypto.VerifySignature(GetKeys().PublicKey, hash, signature, palAlgId);
             }
 
-            protected override byte[] HashData(byte[] data, int offset, int count, HashAlgorithmName hashAlgorithm)
-            {
-                return AsymmetricAlgorithmHelpers.HashData(data, offset, count, hashAlgorithm);
-            }
+            protected override byte[] HashData(byte[] data, int offset, int count, HashAlgorithmName hashAlgorithm) =>
+                AsymmetricAlgorithmHelpers.HashData(data, offset, count, hashAlgorithm);
 
-            protected override byte[] HashData(Stream data, HashAlgorithmName hashAlgorithm)
-            {
-                return AsymmetricAlgorithmHelpers.HashData(data, hashAlgorithm);
-            }
+            protected override byte[] HashData(Stream data, HashAlgorithmName hashAlgorithm) =>
+                AsymmetricAlgorithmHelpers.HashData(data, hashAlgorithm);
+
+            protected override bool TryHashData(ReadOnlySpan<byte> source, Span<byte> destination, HashAlgorithmName hashAlgorithm, out int bytesWritten) =>
+                AsymmetricAlgorithmHelpers.TryHashData(source, destination, hashAlgorithm, out bytesWritten);
 
             protected override void Dispose(bool disposing)
             {
@@ -231,33 +356,39 @@ namespace System.Security.Cryptography
             }
 
             private static Interop.AppleCrypto.PAL_HashAlgorithm PalAlgorithmFromAlgorithmName(
-                HashAlgorithmName hashAlgorithmName)
+                HashAlgorithmName hashAlgorithmName,
+                out int hashSizeInBytes)
             {
                 if (hashAlgorithmName == HashAlgorithmName.MD5)
                 {
+                    hashSizeInBytes = 128 >> 3;
                     return Interop.AppleCrypto.PAL_HashAlgorithm.Md5;
                 }
                 else if (hashAlgorithmName == HashAlgorithmName.SHA1)
                 {
+                    hashSizeInBytes = 160 >> 3;
                     return Interop.AppleCrypto.PAL_HashAlgorithm.Sha1;
                 }
                 else if (hashAlgorithmName == HashAlgorithmName.SHA256)
                 {
+                    hashSizeInBytes = 256 >> 3;
                     return Interop.AppleCrypto.PAL_HashAlgorithm.Sha256;
                 }
                 else if (hashAlgorithmName == HashAlgorithmName.SHA384)
                 {
+                    hashSizeInBytes = 384 >> 3;
                     return Interop.AppleCrypto.PAL_HashAlgorithm.Sha384;
                 }
                 else if (hashAlgorithmName == HashAlgorithmName.SHA512)
                 {
+                    hashSizeInBytes = 512 >> 3;
                     return Interop.AppleCrypto.PAL_HashAlgorithm.Sha512;
                 }
 
                 throw new CryptographicException(SR.Cryptography_UnknownHashAlgorithm, hashAlgorithmName.Name);
             }
 
-            private SecKeyPair GetKeys()
+            internal SecKeyPair GetKeys()
             {
                 SecKeyPair current = _keys;
 
@@ -296,6 +427,9 @@ namespace System.Security.Cryptography
                 return Interop.AppleCrypto.ImportEphemeralKey(pkcs1Blob, isPrivateKey);
             }
         }
+
+        private static Exception HashAlgorithmNameNullOrEmpty() =>
+            new ArgumentException(SR.Cryptography_HashAlgorithmNameNullOrEmpty, "hashAlgorithm");
     }
 
     internal static class RsaKeyBlobHelpers
@@ -470,7 +604,8 @@ namespace System.Security.Cryptography
             parameters.Exponent = KeyBlobHelpers.TrimPaddingByte(privateKey.ReadIntegerBytes());
 
             int modulusLen = parameters.Modulus.Length;
-            int halfModulus = modulusLen / 2;
+            // Add one so that odd byte-length values (RSA 1032) get padded correctly.
+            int halfModulus = (modulusLen + 1) / 2;
 
             parameters.D = KeyBlobHelpers.PadOrTrim(privateKey.ReadIntegerBytes(), modulusLen);
             parameters.P = KeyBlobHelpers.PadOrTrim(privateKey.ReadIntegerBytes(), halfModulus);
